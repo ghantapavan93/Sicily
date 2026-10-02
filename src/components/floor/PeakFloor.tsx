@@ -14,6 +14,8 @@ import { FloorPlan } from "./FloorPlan";
 
 /** The floor at tonight's busiest half hour, as things have been decided so far. */
 export function peakFloorOf(ev: Evaluation): FloorState | null {
+  // A floor drawn from either disputed count would be picking a side.
+  if (ev.twin.demand.disputed) return null;
   const choices = chosenChoices(ev.twin, ev.decisions);
   const run = simulate(ev.scenario, ev.twin, choices, "chosen", "As decided");
   if (!run) return null;

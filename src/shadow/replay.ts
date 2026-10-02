@@ -2,6 +2,7 @@ import { formatClock, type Minutes } from "@/domain/clock";
 import type { Basis } from "@/domain/types";
 import { HOUSE } from "@/domain/venue";
 import { loadPerServer, peakCoversFor } from "@/twin/twin";
+import { byText } from "@/twin/sort";
 import { REPLAY_WINDOW, SITUATIONS } from "./history";
 import type {
   Agreement,
@@ -318,7 +319,7 @@ export function situationsOf(service: number, situations: readonly Situation[] =
 export function serviceEvents(service: number): ReplayEvent[] {
   return situationsOf(service)
     .flatMap(replayEventsFor)
-    .sort((a, b) => a.availableAt - b.availableAt || a.id.localeCompare(b.id));
+    .sort((a, b) => a.availableAt - b.availableAt || byText(a.id, b.id));
 }
 
 /** The same rule as the live engine: only what had arrived by `clock`. */

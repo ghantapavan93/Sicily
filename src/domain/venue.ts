@@ -11,8 +11,6 @@ export const VENUE = {
 /** Owner-set goals and house standards. The engine never invents these. */
 export const HOUSE = {
   laborGoalPct: 30,
-  /** Share of booked covers that land in the 7–8 PM hour, from sample history. */
-  peakHourShare: 0.35,
   /** Walk-ins usually seated in the peak hour on a Friday, from sample history. */
   peakWalkIns: 14,
   /** Peak covers per server at which the floor has held on comparable nights. */

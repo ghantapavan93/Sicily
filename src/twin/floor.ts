@@ -3,6 +3,7 @@ import { HOUSE } from "@/domain/venue";
 import type { Choices } from "./consequence";
 import { ADDED_SHIFT, EARLY_OUT_AT } from "./twin";
 import type { NightPoint, Shift, Twin } from "./types";
+import { byText, lastServerIn } from "./sort";
 
 /*
  * The floor. Sicily's dining room as sections and tables, and who is serving
@@ -68,7 +69,7 @@ function assignments(t: Twin, choices: Choices, at: Minutes): { section: number;
   const scheduled: Shift[] = t.staffing.scheduled;
   const calledOut = new Set(t.staffing.calledOut.map((s) => s.id));
   const working = scheduled.filter((s) => !calledOut.has(s.id));
-  const lastIn = [...working].sort((a, b) => b.start - a.start || a.name.localeCompare(b.name))[0];
+  const lastIn = lastServerIn(working);
   const out: { section: number; name: string; added: boolean }[] = [];
   scheduled.forEach((s, i) => {
     const section = SECTIONS[i % SECTIONS.length]!.id;
@@ -79,7 +80,7 @@ function assignments(t: Twin, choices: Choices, at: Minutes): { section: number;
   });
   // The simulation never runs a slot with nobody on the floor; neither does the floor. The last to leave closes.
   if (out.length === 0) {
-    const closer = [...working].sort((a, b) => b.end - a.end || a.name.localeCompare(b.name))[0];
+    const closer = [...working].sort((a, b) => b.end - a.end || byText(a.name, b.name))[0];
     if (closer) out.push({ section: SECTIONS[scheduled.indexOf(closer) % SECTIONS.length]!.id, name: closer.name, added: false });
   }
   const onCall = t.staffing.onCall;
@@ -92,7 +93,8 @@ function assignments(t: Twin, choices: Choices, at: Minutes): { section: number;
 
 export function floorAt(t: Twin, choices: Choices, point: NightPoint, walkAwaysSoFar = 0): FloorState {
   const assigned = assignments(t, choices, point.at);
-  const hourly = point.covers * 2;
+  // The same demand the run used, so a section's load matches the run's load per server.
+  const hourly = point.hourly;
   const byName = new Map<string, ServerLoad>();
   for (const a of assigned) byName.set(a.name, { name: a.name, sections: [a.section], load: 0, over: false, added: a.added });
 

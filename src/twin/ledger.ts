@@ -2,6 +2,7 @@ import type { Minutes } from "@/domain/clock";
 import type { Freshness } from "@/domain/types";
 import { SOURCE_ORDER, SOURCES } from "./sources";
 import type { EventOf, FaultId, Reading, ReconcileReport, Scenario, SourceHealth, SourceId, TwinEvent } from "./types";
+import { byText } from "./sort";
 
 /* ------------------------------------------------------------------ */
 /* Faults                                                              */
@@ -111,7 +112,7 @@ export function timelineOf(scenario: Scenario, faults: readonly FaultId[]): Twin
     }
   }
 
-  return events.sort((a, b) => a.availableAt - b.availableAt || a.id.localeCompare(b.id));
+  return events.sort((a, b) => a.availableAt - b.availableAt || byText(a.id, b.id));
 }
 
 /** The single leakage rule: nothing is known before it arrives. Used live, in replay and in the lab. */

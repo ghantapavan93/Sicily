@@ -21,11 +21,11 @@ describe("Savy reads the night in order, and nothing before it arrives", () => {
     expect(pulseOf(waiting).sub).toBe("9 new signals since 5:12 PM. Savy hasn't read them yet.");
   });
 
-  it("finds three decisions, one missing fact and two things that can wait", () => {
+  it("finds two decisions, one missing fact and two things that can wait, one card each", () => {
     const s = night();
     expect(pulseOf(s)).toMatchObject({
       headline: "Tonight changed.",
-      sub: "Your original service plan is no longer the plan I would use. I found 3 decisions, 1 missing fact and 2 things that can wait.",
+      sub: "Your original service plan is no longer the plan I would use. I found 2 decisions, 1 missing fact and 2 things that can wait.",
     });
     expect(evaluate(s).decisions.map((x) => [x.key, x.lane, x.status])).toEqual([
       ["staffing", "now", "recommend"],
@@ -39,9 +39,9 @@ describe("Savy reads the night in order, and nothing before it arrives", () => {
   it("computes the figures the screen shows from the events, not from constants", () => {
     const t = twin(night());
     expect(t.demand.booked?.value).toBe(164);
-    expect(t.demand.peakCovers).toBe(71);
-    expect(t.staffing.peakLoad).toBe(17.75);
-    expect(t.staffing.loadWithOneMore).toBeCloseTo(14.2, 1);
+    expect(t.demand.peakCovers).toBeCloseTo(73.04, 2); // (164 × 0.18 + 14 ÷ 2) × 2
+    expect(t.staffing.peakLoad).toBeCloseTo(18.26, 2);
+    expect(t.staffing.loadWithOneMore).toBeCloseTo(14.6, 1);
     expect(t.labor.wages).toBe(2460);
     expect(t.labor.pct).toBeCloseTo(24.02, 2);
     expect(t.inventory.find((i) => i.item === "burrata")).toMatchObject({ forecast: 36, exposure: 5, status: "needs_backup_count" });
@@ -75,7 +75,7 @@ describe("one action ripples through the whole twin", () => {
     const s = night({ type: "APPROVE", key: "staffing" });
     const t = twin(s);
     expect(t.staffing.added.map((x) => x.name)).toEqual(["Sam"]);
-    expect(t.staffing.peakLoad).toBeCloseTo(14.2, 1);
+    expect(t.staffing.peakLoad).toBeCloseTo(14.6, 1);
     expect(t.labor.wages).toBe(2499);
     expect(t.cash.lines.find((l) => l.decision === "staffing")).toMatchObject({ amount: -39, status: "approved" });
     expect(d(s, "staffing")?.status).toBe("approved");
@@ -166,11 +166,20 @@ describe("consequences, forks and memory", () => {
     expect(f.plan.totals.peakLoad).toBeLessThanOrEqual(16);
     expect(f.plan.totals.worstTicket).toBeLessThan(f.nothing.totals.worstTicket);
     expect(f.nothing.totals.soldOut.map((x) => x.item)).toContain("burrata");
+    // The walk-in hasn't been counted, so the plan can't count on it either. It says so instead.
+    expect(f.plan.totals.soldOut.map((x) => x.item)).toContain("burrata");
+    expect(f.plan.actions).toContain("Asked for a burrata count. Not in yet, so this run assumes none");
+  });
+
+  it("once the manager answers, the plan runs on the count that came in", () => {
+    const e = evaluate(night({ type: "ASK_MANAGER", item: "burrata", place: "backup" }, { type: "MANAGER_REPLY", item: "burrata" }));
+    const f = forkOf(e.scenario, e.twin, e.decisions)!;
+    expect(f.choices.plan.awaiting).toEqual([]);
     expect(f.plan.totals.soldOut.map((x) => x.item)).not.toContain("burrata");
   });
 
   it("a fork changes only the decisions that depend on the assumption", () => {
-    const f = forkNight(night(), { covers: 144 });
+    const f = forkNight(night(), { covers: 136 });
     expect(f.changed.map((c) => c.id)).toContain("DEC-STAFF");
     expect(f.unchanged.map((c) => c.id)).toContain("DEC-INVOICE");
     expect(f.fork.decisions.find((x) => x.key === "staffing")).toBeUndefined();

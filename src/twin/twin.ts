@@ -1,6 +1,7 @@
 import { at, type Minutes } from "@/domain/clock";
 import { HOUSE } from "@/domain/venue";
 import { COVER_TOLERANCE, dedupe, healthOf, latest, readingOf } from "./ledger";
+import { lastServerIn } from "./sort";
 import type {
   EventOf,
   InventoryLine,
@@ -64,7 +65,16 @@ export const SURPLUS_MULTIPLE = 1.6;
 /** The afternoon count is due a little before Savy is expected to have a plan. */
 export const countsDueBy = (s: Scenario) => s.decideAt - 2;
 
-export const peakCoversFor = (booked: number, walkIns: number = HOUSE.peakWalkIns) => Math.round(booked * HOUSE.peakHourShare) + walkIns;
+/** The two half hours of the 7 PM peak, where walk-ins concentrate. */
+export const PEAK_SLOTS = [SLOTS[2]!, SLOTS[3]!];
+/** Share of booked covers in the busier of the two peak half hours. */
+export const PEAK_SLOT_SHARE = Math.max(...PEAK_SLOTS.map((slot) => slot.share));
+
+/**
+ * Covers an hour in the busiest half hour of the peak. The forward run seats guests slot by slot with the
+ * same numbers, so the card, the run and the floor all report one peak.
+ */
+export const peakCoversFor = (booked: number, walkIns: number = HOUSE.peakWalkIns) => (booked * PEAK_SLOT_SHARE + walkIns / 2) * 2;
 export const loadPerServer = (peakCovers: number, servers: number) => peakCovers / servers;
 const hours = (from: Minutes, to: Minutes) => Math.max(0, to - from) / 60;
 
@@ -131,7 +141,7 @@ export function understand(input: TwinInput): TwinCore {
     input.staffing.added && onCall ? [{ id: onCall.id, name: onCall.name, role: "server", start: ADDED_SHIFT.start, end: ADDED_SHIFT.end }] : [];
   const working = scheduled.filter((s) => !calloutIds.has(s.id));
   // The early out goes to whoever started last, after the peak hour.
-  const lastIn = [...working].sort((a, b) => b.start - a.start || a.name.localeCompare(b.name))[0];
+  const lastIn = lastServerIn(working);
   const cut: Shift[] = input.staffing.cut && lastIn ? [{ ...lastIn, start: EARLY_OUT_AT }] : [];
 
   const servers = working.length;

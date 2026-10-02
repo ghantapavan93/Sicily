@@ -1,8 +1,9 @@
 import type { Minutes } from "@/domain/clock";
 import { HOUSE } from "@/domain/venue";
 import { clock, one } from "./format";
-import { ADDED_SHIFT, EARLY_OUT_AT, SLOTS } from "./twin";
+import { ADDED_SHIFT, EARLY_OUT_AT, PEAK_SLOTS as PEAK, SLOTS } from "./twin";
 import type { Decision, ItemId, NightPoint, NightRun, Scenario, Twin } from "./types";
+import { lastServerIn } from "./sort";
 
 /*
  * What happens next. A deterministic, clearly synthetic model of the rest of
@@ -15,8 +16,7 @@ import type { Decision, ItemId, NightPoint, NightRun, Scenario, Twin } from "./t
 const TICKET_PER_OVERLOAD = 2.5;
 /** Ticket time at which the floor is visibly behind. */
 export const TICKET_ALERT = 16;
-/** The peak hour, where walk-ins concentrate. */
-const PEAK_SLOTS = new Set([SLOTS[2]!.at, SLOTS[3]!.at]);
+const PEAK_SLOTS = new Set(PEAK.map((slot) => slot.at));
 /** A sold-out dish loses about this share of the check for each order it can't fill. */
 const SOLD_OUT_CHECK_SHARE = 0.25;
 
@@ -29,16 +29,20 @@ export interface Choices {
   line?: Partial<Record<ItemId, number>>;
   /** Dishes with a planned substitute once they run out: no lost sales, no scramble. */
   substitute?: Partial<Record<ItemId, string>>;
+  /** Counts the plan has asked for and nobody has answered. The run assumes none and says so. */
+  awaiting?: ItemId[];
 }
 
 const shiftCost = (start: Minutes, end: Minutes) => ((end - start) / 60) * HOUSE.serverRate;
 
 export function simulate(s: Scenario, t: Twin, choices: Choices, branch: NightRun["branch"], label: string): NightRun | null {
+  // While the cover counts disagree, a forecast on either one would be choosing between them.
+  // The close is different: it records what happened, so it runs on the book.
   const booked = t.demand.booked?.value;
-  if (booked === undefined) return null;
+  if (booked === undefined || (t.demand.disputed && branch !== "chosen")) return null;
 
   const working = t.staffing.scheduled.filter((x) => !t.staffing.calledOut.some((c) => c.id === x.id));
-  const lastIn = [...working].sort((a, b) => b.start - a.start || a.name.localeCompare(b.name))[0];
+  const lastIn = lastServerIn(working);
   const onCall = t.staffing.onCall;
   const canAdd = choices.addServer && onCall !== null && s.onCallAccepts;
 
@@ -107,6 +111,7 @@ export function simulate(s: Scenario, t: Twin, choices: Choices, branch: NightRu
     points.push({
       at: slot.at,
       covers: Math.round(seated),
+      hourly: seatedTry * 2,
       servers,
       load: Number(load.toFixed(1)),
       ticketMinutes,
@@ -124,6 +129,7 @@ export function simulate(s: Scenario, t: Twin, choices: Choices, branch: NightRu
   for (const [id, n] of Object.entries(choices.backup)) if (n) actions.push(`Walk-in checked: ${n} ${s.items[id as ItemId]?.name.toLowerCase() ?? id}`);
   for (const [id, n] of Object.entries(choices.line ?? {})) actions.push(`Recounted: ${n} ${s.items[id as ItemId]?.name.toLowerCase() ?? id} on the line`);
   for (const [id, sub] of Object.entries(choices.substitute ?? {})) if (sub) actions.push(`${s.items[id as ItemId]?.name ?? id} capped, then ${sub}`);
+  for (const id of choices.awaiting ?? []) actions.push(`Asked for a ${s.items[id]?.name.toLowerCase() ?? id} count. Not in yet, so this run assumes none`);
   if (actions.length === 0) actions.push("Nothing changed");
 
   return {
@@ -150,13 +156,14 @@ export function planChoices(s: Scenario, t: Twin, decisions: Decision[]): Choice
   const staffing = decisions.find((d) => d.key === "staffing");
   const rec = staffing && (staffing.status === "recommend" || staffing.status === "approved") ? staffing.recommendation : null;
   const backup: Choices["backup"] = {};
-  const line: NonNullable<Choices["line"]> = {};
   const substitute: NonNullable<Choices["substitute"]> = {};
+  const awaiting: ItemId[] = [];
+  // Savy's plan asks for the counts it is missing, but it can't know the answers until someone counts.
+  // Only counts already on record go into the run; an unanswered one is assumed empty and named.
   for (const i of t.inventory) {
     if (i.backup) backup[i.item] = i.backup.value;
-    else if (i.status === "needs_backup_count") backup[i.item] = s.items[i.item]?.truth.backup ?? 0;
-    // Savy's plan asks for the count it is missing; the simulation uses what the manager would find.
-    if (i.status === "needs_count" || i.status === "discrepancy") line[i.item] = s.items[i.item]?.truth.line ?? 0;
+    else if (i.status === "needs_backup_count") awaiting.push(i.item);
+    if (i.status === "needs_count" || i.status === "discrepancy") awaiting.push(i.item);
   }
   for (const d of decisions) {
     if (d.key.startsWith("supply:") && (d.status === "recommend" || d.status === "approved")) substitute[d.key.slice(7) as ItemId] = "arugula";
@@ -165,8 +172,8 @@ export function planChoices(s: Scenario, t: Twin, decisions: Decision[]): Choice
     addServer: Boolean(rec?.approvable && rec.action.startsWith("Offer") && !rec.action.includes("early out")),
     earlyOut: Boolean(rec?.action.includes("early out")),
     backup,
-    line,
     substitute,
+    awaiting: [...new Set(awaiting)],
   };
 }
 

@@ -415,6 +415,8 @@ export interface VendorSubmission {
 export interface NightPoint {
   at: Minutes;
   covers: number;
+  /** Guests who tried to sit in this half hour, as an hourly rate. Unrounded, so the floor and the run agree. */
+  hourly: number;
   servers: number;
   load: number;
   ticketMinutes: number;
