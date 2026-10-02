@@ -72,7 +72,7 @@ export function lineupOf(state: TwinState): Lineup | null {
   return {
     title: `${e.scenario.service} · lineup`,
     at: clock(Math.min(e.scenario.doorsAt - 10, Math.max(state.processedThrough, e.scenario.decideAt))),
-    covers: `${booked} booked (${t.demand.vsPlanPct !== null && t.demand.vsPlanPct >= 0 ? "+" : ""}${Math.round(t.demand.vsPlanPct ?? 0)}% on plan) · about ${t.demand.peakCovers} in the 7 PM hour`,
+    covers: `${booked} booked (${t.demand.vsPlanPct !== null && t.demand.vsPlanPct >= 0 ? "+" : ""}${Math.round(t.demand.vsPlanPct ?? 0)}% on plan) · about ${Math.round(t.demand.peakCovers)} an hour at the 7 PM peak`,
     sections,
     stock,
     watch,
@@ -106,7 +106,9 @@ export function mondayOf(state: TwinState): MondayBriefing {
   for (const inv of t.invoices.filter((i) => i.verdict === "price" && !agenda.some((a) => a.title.includes(i.vendor)))) {
     agenda.push({ title: `${inv.vendor}: ${Math.round(inv.deltaPct)}% over contract`, why: `${signedUsd(inv.priceEffect)} this week from price alone.` });
   }
-  const learned = state.phase === "remembered" ? memoriesFor(state).filter((m) => m.updatedTonight).map((m) => (m.status === "needs_revalidation" ? `Now in doubt: ${m.statement}` : `Strengthened: ${m.statement}`)) : [];
+  const learned = state.phase === "remembered" ? memoriesFor(state)
+          .filter((m) => m.updatedTonight)
+          .map((m) => (m.status === "needs_revalidation" ? `Now in doubt: ${m.statement}` : m.supporting.some((r) => r.tonight) ? `Strengthened: ${m.statement}` : `Contradicted tonight: ${m.statement}`)) : [];
 
   return {
     title: "Monday briefing",

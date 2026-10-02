@@ -8,7 +8,9 @@ describe("the stress lab", () => {
   it("runs every night under every combination of the six faults", () => {
     expect(RUN_COUNT).toBe(192);
     expect(summary.runs).toBe(192);
-    expect(summary.checks).toBeGreaterThan(2000);
+    // Exact, so a check that quietly stops applying shows up here.
+    expect(summary.checks).toBe(1960);
+    expect(summary.notApplicable).toBe(152);
   });
 
   it("breaks no promise", () => {

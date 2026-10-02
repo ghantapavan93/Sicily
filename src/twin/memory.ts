@@ -1,14 +1,15 @@
-import type { DecisionKey, HumanAct, Outcome, ScenarioId, TeachReason } from "./types";
+import { HOUSE } from "@/domain/venue";
+import type { DecisionKey, Outcome, ScenarioId, TeachReason } from "./types";
 
 /*
  * LEARN. Decision memory is computed from records: past nights, what was
  * decided, what happened. It is never a guess about the owner's personality.
  * A memory needs MIN_EVIDENCE supporting nights to become a pattern, and
- * recent nights that contradict it put it back under review.
+ * nights that contradict it put it back under review.
  */
 
 export const MIN_EVIDENCE = 3;
-/** This many recent counterexamples and a pattern is no longer trusted. */
+/** This many counterexamples, on any nights, and a pattern is no longer trusted. */
 export const CONTRADICTION_LIMIT = 3;
 
 export interface MemoryRecord {
@@ -166,17 +167,35 @@ const REJECT_MEMORY: Record<TeachReason, { statement: string; usage: string }> =
   },
 };
 
+const slug = (key: string) => key.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+
+/** The reasons above are written about staffing. Any other decision gets the same reason, said generally. */
+function taughtElsewhere(reason: TeachReason): { statement: string; usage: string } {
+  switch (reason) {
+    case "not_worth_cost":
+      return { statement: "The owner sometimes judges a recommendation not worth its cost.", usage: "Savy leads with the cost when it recommends something like this again." };
+    case "too_late":
+      return { statement: "Some recommendations arrive too late in the day to act on.", usage: "Savy raises decisions like this one earlier." };
+    case "manager_overruled":
+      return { statement: "The manager has overruled a recommendation like this one.", usage: "Savy compares outcomes when the manager disagrees, before recommending again." };
+    case "floor_can_cover":
+    case "know_something":
+      return REJECT_MEMORY.know_something;
+  }
+}
+
 export interface LearnInput {
   scenario: ScenarioId;
   /** Present once the night has closed and been written to memory. */
   outcome: Outcome | null;
   remembered: boolean;
-  human: Partial<Record<DecisionKey, HumanAct>>;
   /** Decisions the owner asked Savy to remember, with the reason given. */
   taught: { key: DecisionKey; reason: TeachReason }[];
   /** Items whose backup the manager counted tonight. */
   counted: { item: string; covered: boolean }[];
   invoiceOverPct: number | null;
+  /** Covers the night was planned for, before tonight's changes. */
+  plannedCovers: number;
 }
 
 /**
@@ -197,21 +216,27 @@ export function memoriesOf(input: LearnInput): Memory[] {
 
   if (input.remembered && input.outcome) {
     const run = input.outcome.actual;
-    const staffing = input.human.staffing;
-    if (input.scenario === "friday_rush") {
-      const added = run.actions.some((a) => a.startsWith("Added"));
+    // A night is evidence only for what it tested. A night with no added server says nothing about
+    // whether an added server holds the floor, so it is left out rather than counted either way.
+    if (input.scenario === "friday_rush" && run.actions.some((a) => a.startsWith("Added"))) {
+      const held = run.totals.peakLoad <= HOUSE.loadCeiling;
       touch(
         find("mem_surge_callout"),
-        tonight(
-          added
-            ? `${run.totals.covers} covers, a call-out, one added. Peak ${run.totals.peakLoad.toFixed(1)} per server. Tickets ${run.totals.worstTicket} min at worst.`
-            : `${run.totals.covers} covers, a call-out, none added${staffing?.kind === "rejected" ? " (the plan was overruled)" : ""}. Peak ${run.totals.peakLoad.toFixed(1)}. Tickets reached ${run.totals.worstTicket} min.`,
-        ),
-        true,
+        tonight(`${run.totals.covers} covers, a call-out, one added. Peak ${run.totals.peakLoad.toFixed(1)} per server. Tickets ${run.totals.worstTicket} min at worst.`),
+        held,
       );
     }
     if (input.scenario === "slow_night") {
-      touch(find("mem_rain_tuesday"), tonight(`${run.totals.covers} covers after cancellations. Walk-ins didn't make it up.`), true);
+      const shortfall = input.plannedCovers - run.totals.covers;
+      touch(
+        find("mem_rain_tuesday"),
+        tonight(
+          shortfall > 0
+            ? `${run.totals.covers} covers against ${input.plannedCovers} planned. Walk-ins didn't make it up.`
+            : `${run.totals.covers} covers against ${input.plannedCovers} planned. Walk-ins made it up.`,
+        ),
+        shortfall > 0,
+      );
     }
     for (const c of input.counted) {
       touch(find("mem_backup_first"), tonight(`${c.item}: the walk-in was counted before ordering. ${c.covered ? "It covered the gap." : "It wasn't enough."}`), c.covered);
@@ -222,9 +247,9 @@ export function memoriesOf(input: LearnInput): Memory[] {
   }
 
   for (const t of input.taught) {
-    const spec = REJECT_MEMORY[t.reason];
+    const spec = t.key === "staffing" ? REJECT_MEMORY[t.reason] : taughtElsewhere(t.reason);
     out.push({
-      id: `mem_taught_${t.key.replace(/[^a-z]/g, "_")}`,
+      id: `mem_taught_${slug(t.key)}_${t.reason}`,
       statement: spec.statement,
       usage: spec.usage,
       scenarios: [input.scenario],

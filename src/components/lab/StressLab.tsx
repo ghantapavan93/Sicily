@@ -133,8 +133,14 @@ export function StressLab() {
           <ul className="mt-4 divide-y divide-line-soft">
             {detail.checks.map((c) => (
               <li key={c.name} className="flex items-start gap-3 py-2 text-sm">
-                {c.ok ? <Check aria-hidden className="mt-0.5 size-4 shrink-0 text-verified" /> : <X aria-hidden className="mt-0.5 size-4 shrink-0 text-conflict" />}
-                <span className="text-ink-hi">
+                {!c.applies ? (
+                  <span aria-label="Not applicable" className="mt-0.5 flex size-4 shrink-0 items-center justify-center font-mono text-xs text-ink-lo">–</span>
+                ) : c.ok ? (
+                  <Check aria-hidden className="mt-0.5 size-4 shrink-0 text-verified" />
+                ) : (
+                  <X aria-hidden className="mt-0.5 size-4 shrink-0 text-conflict" />
+                )}
+                <span className={c.applies ? "text-ink-hi" : "text-ink-lo"}>
                   {c.name}
                   {c.detail && <span className="ml-2 text-ink-lo">{c.detail}</span>}
                 </span>

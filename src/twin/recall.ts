@@ -9,11 +9,11 @@ export function memoriesFor(state: TwinState): Memory[] {
     scenario: state.scenario,
     outcome: state.outcome,
     remembered: state.phase === "remembered",
-    human: state.human,
     taught: state.taught,
     counted: state.requests
       .filter((r) => r.place === "backup" && r.answeredAt !== null)
       .map((r) => ({ item: e.scenario.items[r.item]?.name ?? r.item, covered: e.twin.inventory.find((i) => i.item === r.item)?.status === "ok" })),
     invoiceOverPct: priced ? priced.deltaPct : null,
+    plannedCovers: e.scenario.plan.covers,
   });
 }

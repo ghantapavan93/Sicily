@@ -16,6 +16,8 @@ export interface LabCheck {
   name: string;
   ok: boolean;
   detail: string;
+  /** False when the night gives the promise nothing to act on. Such a check is shown, never counted as passed. */
+  applies: boolean;
 }
 
 export interface LabRun {
@@ -53,7 +55,8 @@ export function runLab(id: number): LabRun {
   const scenario = SCENARIO_ORDER[Math.floor(id / COMBINATIONS)]!;
   const faults = faultsOf(id % COMBINATIONS);
   const checks: LabCheck[] = [];
-  const check = (name: string, ok: boolean, detail = "") => checks.push({ name, ok, detail });
+  const check = (name: string, ok: boolean, detail = "") => checks.push({ name, ok, detail, applies: true });
+  const notApplicable = (name: string, why: string) => checks.push({ name, ok: true, detail: why, applies: false });
 
   const { state, actions } = opened(scenario, faults);
   const e = evaluate(state);
@@ -106,7 +109,7 @@ export function runLab(id: number): LabRun {
       s = run(s, trail, { type: "SUBMIT_PO" }, { type: "VENDOR_RECONCILE" }, { type: "SUBMIT_PO" });
       const orders = new Set(s.submission?.log.filter((l) => l.text.startsWith("Owner submitted")).map((l) => l.text));
       check(FAULTS.vendor_timeout.promise, unknown && s.submission?.status === "found" && orders.size === 1 && s.submission.attempts === 1, `status ${s.submission?.status}`);
-    } else check(FAULTS.vendor_timeout.promise, true, "no order to submit on this night");
+    } else notApplicable(FAULTS.vendor_timeout.promise, "no order to submit on this night");
   }
   if (faults.includes("manager_rejects")) {
     const staff = e.decisions.find((d) => d.key === "staffing");
@@ -115,7 +118,7 @@ export function runLab(id: number): LabRun {
       const after = evaluate(s);
       const unchanged = after.twin.staffing.added.length === 0 && after.twin.staffing.cut.length === 0;
       check(FAULTS.manager_rejects.promise, unchanged && s.audit.some((a) => a.type === "decision.overruled") && s.pendingTeach !== null);
-    } else check(FAULTS.manager_rejects.promise, true, "no staffing change to overrule on this night");
+    } else notApplicable(FAULTS.manager_rejects.promise, "no staffing change to overrule on this night");
   }
 
   /* Recovery, close, and replay ------------------------------------- */
@@ -154,7 +157,8 @@ export function runLab(id: number): LabRun {
 }
 
 export function summarizeLab(runs: LabRun[]) {
-  const checks = runs.reduce((n, r) => n + r.checks.length, 0);
+  const checks = runs.reduce((n, r) => n + r.checks.filter((c) => c.applies).length, 0);
+  const notApplicable = runs.reduce((n, r) => n + r.checks.filter((c) => !c.applies).length, 0);
   const failed = runs.reduce((n, r) => n + r.checks.filter((c) => !c.ok).length, 0);
-  return { runs: runs.length, checks, failed, recommends: runs.reduce((n, r) => n + r.recommends, 0), withholds: runs.reduce((n, r) => n + r.withholds, 0) };
+  return { runs: runs.length, checks, notApplicable, failed, recommends: runs.reduce((n, r) => n + r.recommends, 0), withholds: runs.reduce((n, r) => n + r.withholds, 0) };
 }

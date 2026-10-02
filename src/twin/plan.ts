@@ -4,7 +4,8 @@ import { HOUSE } from "@/domain/venue";
 import { clock, lowerFirst, one, pct, plural, signedPct, signedUsd, usd } from "./format";
 import { relevantPatterns } from "./memory";
 import { SOURCES } from "./sources";
-import { ADDED_SHIFT, EARLY_OUT_AT, type TwinCore } from "./twin";
+import { lastServerIn } from "./sort";
+import { ADDED_SHIFT, EARLY_OUT_AT, PEAK_SLOT_SHARE, peakCoversFor, type TwinCore } from "./twin";
 import type {
   CashLine,
   Decision,
@@ -72,11 +73,15 @@ function guard(requiresApproval: boolean, evidenceSufficient: boolean, rules: st
 function withHuman(d: Decision, act: HumanAct | undefined): Decision {
   if (!act) return d;
   if (act.kind === "approved") {
+    // A decided decision offers no more fixes. If the evidence moved after the approval, the card says that
+    // instead of repeating a withdrawn headline next to an "Approved" chip.
     const drifted = d.recommendation?.action !== act.action;
     return {
       ...d,
       status: "approved",
+      headline: drifted ? "Approved earlier. The evidence behind it has changed since." : d.headline,
       recommendation: drifted ? { action: act.action, detail: "Approved earlier, as it was drafted then.", approvable: false } : d.recommendation,
+      remedies: [],
     };
   }
   return { ...d, status: "rejected" };
@@ -86,7 +91,9 @@ function withHuman(d: Decision, act: HumanAct | undefined): Decision {
 /* Labor                                                               */
 /* ------------------------------------------------------------------ */
 
-function laborDecision(t: TwinCore, s: Scenario, memoryBacked: boolean): Decision | null {
+/** `backing` is the surge pattern from memory when it is trusted, so the reason quotes its real record. */
+function laborDecision(t: TwinCore, s: Scenario, backing: { held: number; nights: number } | null): Decision | null {
+  const memoryBacked = backing !== null;
   const { demand, staffing, labor, sales } = t;
   const booked = demand.booked;
   const schedule = t.staffing.scheduled;
@@ -130,8 +137,8 @@ function laborDecision(t: TwinCore, s: Scenario, memoryBacked: boolean): Decisio
   if (demand.disputed) {
     const a = booked.value;
     const b = demand.disputed.value;
-    const peakA = Math.round(a * HOUSE.peakHourShare) + s.plan.peakWalkIns;
-    const peakB = Math.round(b * HOUSE.peakHourShare) + s.plan.peakWalkIns;
+    const peakA = peakCoversFor(a, s.plan.peakWalkIns);
+    const peakB = peakCoversFor(b, s.plan.peakWalkIns);
     return {
       ...base,
       key: "staffing",
@@ -222,9 +229,10 @@ function laborDecision(t: TwinCore, s: Scenario, memoryBacked: boolean): Decisio
     const pctNow = (wagesNow / projected) * 100;
     const pctAfter = ((wagesNow + cost) / projected) * 100;
     const window = `${clock(ADDED_SHIFT.start).replace(" PM", "")}–${clock(ADDED_SHIFT.end)}`;
-    const maxBooked = Math.floor((staffing.ceiling * servers - s.plan.peakWalkIns + 0.49) / HOUSE.peakHourShare);
+    // peakCoversFor solved for the book: the most covers that keep these servers at the ceiling.
+    const maxBooked = Math.floor((staffing.ceiling * servers - s.plan.peakWalkIns) / (2 * PEAK_SLOT_SHARE));
     const reasons = ["Reservations, the call-out and sales are current.", "Peak share and walk-ins come from sample history."];
-    if (memoryBacked) reasons.push("One added server has held the floor on 5 of 5 nights like this.");
+    if (backing) reasons.push(`One added server has held the floor on ${backing.held} of ${backing.nights} nights like this.`);
     const level: ConfidenceLevel = memoryBacked ? "high" : "medium";
     return {
       ...base,
@@ -253,7 +261,7 @@ function laborDecision(t: TwinCore, s: Scenario, memoryBacked: boolean): Decisio
       ],
       autonomy: "prepare",
       guard: guard(true, true, [GUARD_RULES.labor, GUARD_RULES.messages]),
-      doNothing: `Four servers carry the 7 PM wave at about ${one(peakAtPlan)} covers each. Tickets stretch and some walk-ins leave.`,
+      doNothing: `${servers} servers carry the 7 PM wave at about ${one(peakAtPlan)} covers each. Tickets stretch and some walk-ins leave.`,
       effects: [
         { label: "Peak covers per server", from: one(peakAtPlan), to: one(staffing.loadWithOneMore ?? peak), basis: "estimated" },
         { label: "Wages tonight", from: usd(wagesNow), to: usd(wagesNow + cost), basis: "scheduled" },
@@ -268,7 +276,7 @@ function laborDecision(t: TwinCore, s: Scenario, memoryBacked: boolean): Decisio
         gm: `Call ${onCall?.name ?? "the on-call server"} for ${window} and give them section 4. Seat the 7 PM wave across ${servers + 1} sections.`,
         engineering: [
           `rule LAB-COV-01: peak_load ${one(peakAtPlan)} > ceiling ${staffing.ceiling}`,
-          `peak_covers = round(${booked.value} × ${HOUSE.peakHourShare}) + ${s.plan.peakWalkIns} = ${t.demand.peakCovers}`,
+          `peak_covers/h = (${booked.value} × ${PEAK_SLOT_SHARE} + ${s.plan.peakWalkIns} ÷ 2) × 2 = ${one(t.demand.peakCovers ?? 0)}`,
           `labor_pct = ${usd(wagesNow)} ÷ ${usd(projected)} = ${pct(pctNow)} (goal ${goal}%)`,
           "guard: evidence_sufficient=true · requires_owner_approval=true · external_action_allowed=false",
         ],
@@ -278,7 +286,7 @@ function laborDecision(t: TwinCore, s: Scenario, memoryBacked: boolean): Decisio
 
   // Under the floor and over the labor goal: offer an early out after the peak.
   const working = staffing.scheduled.filter((x) => !staffing.calledOut.some((c) => c.id === x.id));
-  const lastIn = [...working].sort((a, b) => b.start - a.start || a.name.localeCompare(b.name))[0];
+  const lastIn = lastServerIn(working);
   if (!lastIn) return null;
   const savings = ((lastIn.end - EARLY_OUT_AT) / 60) * HOUSE.serverRate;
   const wagesNow = labor.wages + (staffing.cut.length ? savings : 0);
@@ -299,10 +307,10 @@ function laborDecision(t: TwinCore, s: Scenario, memoryBacked: boolean): Decisio
       approvable: true,
     },
     stillUnknown: ["Walk-ins in the rain. Sample history says few."],
-    wouldChangeMind: [`If walk-ins pass ${s.plan.peakWalkIns * 2} by 7 PM, keep everyone.`, "A slow Tuesday can't reach 30% by cutting one server; the rest is the sales shortfall."],
+    wouldChangeMind: [`If walk-ins pass ${s.plan.peakWalkIns * 2} by 7 PM, keep everyone.`, `A slow ${s.day} can't reach ${goal}% by cutting one server; the rest is the sales shortfall.`],
     autonomy: "prepare",
     guard: guard(true, true, [GUARD_RULES.labor, GUARD_RULES.messages]),
-    doNothing: `Five servers share a night built for three or four. Wages run about ${usd(savings)} ahead of where they need to be.`,
+    doNothing: `${servers} servers share a night that needs fewer. Wages run about ${usd(savings)} ahead of where they need to be.`,
     effects: [
       { label: "Wages tonight", from: usd(wagesNow), to: usd(wagesNow - savings), basis: "scheduled" },
       { label: "Labor", from: pct(pctNow), to: pct(pctAfter), basis: "estimated" },
@@ -616,7 +624,7 @@ function supplyDecisions(t: TwinCore, s: Scenario): Decision[] {
             ? `${d.received} of ${d.ordered} cases of ${lower} arrived. About ${item.forecast} portions needed, ${onHand} on hand.`
             : `${d.received} of ${d.ordered} cases of ${lower} arrived. ${onHand} portions on hand.`,
         whatChanged: [`${d.vendor} delivered ${d.received} of ${d.ordered} cases.`],
-        whyItMatters: `The market salad runs out late in the second turn, and ${d.short} cases (${usd(credit)}) are owed back.`,
+        whyItMatters: `The ${(s.items[d.item]?.name ?? lower).toLowerCase()} runs out late in the second turn, and ${d.short} cases (${usd(credit)}) are owed back.`,
         recommendation: {
           action: `Hold the salad at ${onHand} portions, then offer the arugula`,
           detail: `A credit request for ${d.short} cases (${usd(credit)}) is drafted for ${d.vendor}. Draft only; Savy can't send it.`,
@@ -744,7 +752,9 @@ function cashOf(t: TwinCore, s: Scenario, decisions: Decision[]): Twin["cash"] {
   if (staffing && staffDecision?.recommendation) {
     const cost = ((ADDED_SHIFT.end - ADDED_SHIFT.start) / 60) * HOUSE.serverRate;
     const isCut = staffDecision.recommendation.action.includes("early out");
-    const lastIn = [...t.staffing.scheduled].sort((a, b) => b.start - a.start || a.name.localeCompare(b.name))[0];
+    // The same server the decision names: the last one in among those actually working, not anyone who called out.
+    const working = t.staffing.scheduled.filter((x) => !t.staffing.calledOut.some((c) => c.id === x.id));
+    const lastIn = lastServerIn(working);
     const savings = lastIn ? ((lastIn.end - EARLY_OUT_AT) / 60) * HOUSE.serverRate : 0;
     lines.push({ label: staffDecision.recommendation.action, amount: isCut ? savings : -cost, status: staffing, decision: "staffing" });
   }
@@ -815,7 +825,7 @@ function observe(t: TwinCore, s: Scenario): Observation[] {
   const d = t.demand;
   if (d.booked) add("demand", `${d.booked.value} covers booked${d.vsPlanPct !== null ? `, ${signedPct(d.vsPlanPct)} against plan` : ""}.`, [d.booked.eventId]);
   if (d.disputed) add("demand", `Host stand says ${d.disputed.value}. Counts disagree.`, [d.disputed.eventId]);
-  if (d.peakCovers !== null) add("demand", `About ${d.peakCovers} covers in the 7 PM hour.`, d.booked ? [d.booked.eventId] : []);
+  if (d.peakCovers !== null) add("demand", `About ${Math.round(d.peakCovers)} covers an hour at the 7 PM peak.`, d.booked ? [d.booked.eventId] : []);
   if (d.nearbyEvent) add("demand", `${d.nearbyEvent.value.name} ends ${clock(d.nearbyEvent.value.endsAt)}. Listed, not counted.`, [d.nearbyEvent.eventId], false);
 
   const st = t.staffing;
@@ -853,10 +863,11 @@ function observe(t: TwinCore, s: Scenario): Observation[] {
 /* ------------------------------------------------------------------ */
 
 export function plan({ twin, scenario, human, requests }: PlanInput): Plan {
-  const memoryBacked = relevantPatterns(scenario.id).some((m) => m.id === "mem_surge_callout" && m.status === "pattern");
+  const surge = relevantPatterns(scenario.id).find((m) => m.id === "mem_surge_callout" && m.status === "pattern");
+  const backing = surge ? { held: surge.supporting.length, nights: surge.supporting.length + surge.counter.length } : null;
 
   const drafted: Decision[] = [
-    laborDecision(twin, scenario, memoryBacked),
+    laborDecision(twin, scenario, backing),
     ...twin.inventory.map((i) => inventoryDecision(twin, scenario, i, requests)),
     purchasingDecision(twin, scenario),
     ...supplyDecisions(twin, scenario),
@@ -873,7 +884,8 @@ export function plan({ twin, scenario, human, requests }: PlanInput): Plan {
     if (deferrable) {
       const status = decisions.find((d) => d.key === "cash")?.status === "approved" ? "approved" : "proposed";
       cash = { ...cash, lines: [...cash.lines, { label: `${deferrable.label} moved to ${deferrable.to}`, amount: deferrable.amount, status, decision: "cash" }] };
-      if (status === "approved") cash = { ...cash, projected: cash.projected + deferrable.amount };
+      // An approved deferral moves both projections, so the pace estimate can't still show the old shortfall.
+      if (status === "approved") cash = { ...cash, projected: cash.projected + deferrable.amount, withEstimates: cash.withEstimates + deferrable.amount };
       cash = { ...cash, proposedDelta: cash.proposedDelta + deferrable.amount };
     }
   }

@@ -193,7 +193,7 @@ function trackDecisions(before: TwinState, after: TwinState, cause: string): Twi
     };
     versions[d.key] = [...history, version];
     if (d.status === "approved" || d.status === "rejected") continue; // the person's own line says it
-    if (!old) drafts.push({ actor: "savy", type: "decision.drafted", label: `${d.title}: ${lowerFirst(version.summary)}.`, decision: d.key });
+    if (!old) drafts.push({ actor: "savy", type: "decision.drafted", label: `${d.title}: ${lowerFirst(version.summary).replace(/\.+$/, "")}.`, decision: d.key });
     else if (old.status === "recommend" && (d.status === "held" || d.status === "conflict" || d.status === "needs_fact")) {
       drafts.push({ actor: "savy", type: "recommendation.withdrawn", label: `Recommendation withdrawn. ${d.recommendation?.action ?? d.headline}`, decision: d.key });
     } else if (d.status === "recommend" && (old.status === "held" || old.status === "conflict")) {
@@ -201,7 +201,7 @@ function trackDecisions(before: TwinState, after: TwinState, cause: string): Twi
     } else if (d.status === "resolved") {
       drafts.push({ actor: "savy", type: "decision.resolved", label: `Closed by evidence: ${lowerFirst(d.headline)}`, decision: d.key });
     } else {
-      drafts.push({ actor: "savy", type: "decision.changed", label: `${d.title}: ${lowerFirst(version.summary)}.`, decision: d.key });
+      drafts.push({ actor: "savy", type: "decision.changed", label: `${d.title}: ${lowerFirst(version.summary).replace(/\.+$/, "")}.`, decision: d.key });
     }
   }
   for (const old of prev) {
@@ -513,7 +513,8 @@ function step(state: TwinState, action: TwinAction): TwinState {
     }
 
     case "VENDOR_RECONCILE": {
-      if (state.phase === "idle") return state;
+      // Only while the night is open. Closing the night reconciles first, so a closed night never changes.
+      if (state.phase !== "live") return state;
       const sub = state.submission;
       if (!sub || sub.status !== "unknown") return state;
       const at = state.clock + 1;
@@ -529,6 +530,7 @@ function step(state: TwinState, action: TwinAction): TwinState {
 
     case "FAST_FORWARD": {
       if (state.phase !== "live") return state;
+      if (state.submission?.status === "unknown") return step(step(state, { type: "VENDOR_RECONCILE" }), action);
       const e = evaluate(state);
       const actual = simulate(s, e.twin, chosenChoices(e.twin, e.decisions), "chosen", "What happened");
       if (!actual) return state;
@@ -751,13 +753,21 @@ const TICK_RUN_MAX = 200;
  * capped, from its start.
  */
 export function lastNight(actions: readonly TwinAction[]): TwinAction[] {
+  const from = nightStart(actions);
+  return actions.slice(from, from + MAX_ACTIONS);
+}
+
+function nightStart(actions: readonly TwinAction[]): number {
   let from = 0;
   actions.forEach((a, i) => {
     if (a.type === "OPEN") from = i;
     else if (a.type === "RESET") from = i + 1;
   });
-  return actions.slice(from, from + MAX_ACTIONS);
+  return from;
 }
+
+/** True when the last night is longer than a replay keeps, so replaying it would silently drop its end. */
+export const nightTooLong = (actions: readonly TwinAction[]) => actions.length - nightStart(actions) > MAX_ACTIONS;
 
 /** Unknown or malformed tokens are dropped, never guessed at. */
 export function decodeSession(token: string): TwinAction[] {
@@ -776,8 +786,11 @@ export function decodeSession(token: string): TwinAction[] {
 
 export const fold = (actions: readonly TwinAction[]) => actions.reduce(twinReducer, initialTwin);
 
-/** Validates an untrusted action list (from a request body) by round-tripping each action through its token. */
-export function parseActions(raw: unknown): TwinAction[] {
+/** Validates an untrusted action list (from a request body) and keeps its last night. */
+export const parseActions = (raw: unknown): TwinAction[] => lastNight(validActions(raw));
+
+/** Every action in an untrusted list that round-trips through its token. Anything else is dropped. */
+export function validActions(raw: unknown): TwinAction[] {
   if (!Array.isArray(raw)) return [];
   const out: TwinAction[] = [];
   // The body is already size-capped by the route, so the whole list can be read before the last night is kept.
@@ -791,5 +804,5 @@ export function parseActions(raw: unknown): TwinAction[] {
       // Not an action this reducer knows. Dropped.
     }
   }
-  return lastNight(out);
+  return out;
 }

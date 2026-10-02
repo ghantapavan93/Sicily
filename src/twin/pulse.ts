@@ -66,7 +66,7 @@ function twinDelta(a: Evaluation, b: Evaluation): string[] {
   const ta = a.twin;
   const tb = b.twin;
   if (ta.demand.booked?.value !== tb.demand.booked?.value && tb.demand.booked) out.push(`Covers ${ta.demand.booked?.value ?? "—"} → ${tb.demand.booked.value}`);
-  if (ta.demand.peakCovers !== tb.demand.peakCovers) out.push(`Peak hour ${ta.demand.peakCovers ?? "—"} → ${tb.demand.peakCovers ?? "unknown"} covers`);
+  if (ta.demand.peakCovers !== tb.demand.peakCovers) out.push(`Peak ${ta.demand.peakCovers === null ? "—" : Math.round(ta.demand.peakCovers)} → ${tb.demand.peakCovers === null ? "unknown" : Math.round(tb.demand.peakCovers)} covers an hour`);
   if (ta.staffing.servers !== tb.staffing.servers) out.push(`Servers ${ta.staffing.servers} → ${tb.staffing.servers}`);
   if (ta.staffing.peakLoad !== tb.staffing.peakLoad && tb.staffing.peakLoad !== null) out.push(`Peak load ${ta.staffing.peakLoad === null ? "—" : one(ta.staffing.peakLoad)} → ${one(tb.staffing.peakLoad)} per server`);
   if (ta.labor.projectedSales !== tb.labor.projectedSales) out.push(tb.labor.projectedSales === null ? "Sales projection withdrawn" : `Sales projection ${usd(tb.labor.projectedSales)}`);
@@ -118,8 +118,9 @@ function listOf(parts: string[]): string {
 export function pulseOf(state: TwinState): Pulse {
   const e = evaluate(state);
   const s = e.scenario;
-  const decisions = e.decisions.filter((d) => d.lane !== "can_wait" && d.status !== "resolved").length;
+  // Each card is counted once: a decision waiting on a missing fact is the missing fact, not also a decision.
   const missing = e.decisions.filter((d) => d.status === "needs_fact").length;
+  const decisions = e.decisions.filter((d) => d.lane !== "can_wait" && d.status !== "resolved" && d.status !== "needs_fact").length;
   const canWait = e.decisions.filter((d) => d.lane === "can_wait").length;
   const needsNow = e.decisions.filter((d) => d.lane !== "can_wait" && OPEN.has(d.status));
   const counts = { decisions, missing, canWait, open: needsNow.length };
@@ -142,7 +143,8 @@ export function pulseOf(state: TwinState): Pulse {
       // Decisions closed by evidence still count: they were on the owner's list until the floor answered.
       const total = e.decisions.filter((d) => d.lane !== "can_wait").length;
       if (handled === 0) {
-        const parts = [plural(decisions, "decision")];
+        const parts: string[] = [];
+        if (decisions) parts.push(plural(decisions, "decision"));
         if (missing) parts.push(plural(missing, "missing fact"));
         if (canWait) parts.push(`${canWait} ${canWait === 1 ? "thing that can" : "things that can"} wait`);
         return { tone: "changed", headline: "Tonight changed.", sub: `Your original service plan is no longer the plan I would use. I found ${listOf(parts)}.`, counts };
