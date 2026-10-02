@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { checkGrounding } from "@/agent/grounding";
 import { parseTurns } from "@/agent/protocol";
-import { answerByRules } from "@/agent/rules";
+import { answerByRules, intentOf } from "@/agent/rules";
 import { contextFor } from "@/agent/tools";
 import { forkOf } from "./consequence";
 import { floorsOf } from "./floor";
@@ -69,6 +69,20 @@ describe("the reducer refuses what doesn't belong", () => {
     expect(twinReducer(s, { type: "ASK_MANAGER", item: "burrata", place: "line" }).requests).toHaveLength(1);
   });
 
+  it("a closed night never changes: closing reconciles a vendor timeout first", () => {
+    const s = fold([...OPEN(), { type: "TOGGLE_FAULT", fault: "vendor_timeout" }, { type: "APPROVE", key: "purchasing" }, { type: "SUBMIT_PO" }]);
+    expect(s.submission?.status).toBe("unknown");
+    const closed = twinReducer(s, { type: "FAST_FORWARD" });
+    expect(closed.phase).toBe("closed");
+    expect(closed.submission?.status).toBe("found");
+    expect(twinReducer(closed, { type: "VENDOR_RECONCILE" })).toBe(closed);
+  });
+
+  it("a night with disputed counts can still close, though it can't be forecast", () => {
+    const s = fold([{ type: "OPEN", scenario: "friday_rush" }, { type: "TOGGLE_FAULT", fault: "reservations_disagree" }, { type: "SKIP" }, { type: "RUN_SAVY" }, { type: "SKIP" }, { type: "FAST_FORWARD" }]);
+    expect(s.phase).toBe("closed");
+  });
+
   it("an overruled change doesn't leave the events in its two minutes unread", () => {
     const s = fold([...OPEN(), { type: "TOGGLE_FAULT", fault: "manager_rejects" }, { type: "APPROVE", key: "staffing" }]);
     expect(s.processedThrough).toBe(s.clock);
@@ -105,7 +119,7 @@ describe("what Savy says stays true", () => {
 
   it("'approve the staffing proposal' approves staffing, and 'do items run out?' approves nothing", async () => {
     const a = await ask("Approve the staffing proposal", OPEN());
-    expect(a.ctx.proposals[0]?.action).toEqual({ kind: "approve", decision: "staffing" });
+    expect(a.ctx.proposals[0]?.action).toMatchObject({ kind: "approve", decision: "staffing" });
     const b = await ask("Do items run out?", OPEN());
     expect(b.ctx.proposals).toHaveLength(0);
   });
@@ -121,6 +135,58 @@ describe("what Savy says stays true", () => {
     expect(text).toMatch(/still reading/);
     expect(text).not.toMatch(/\$0/);
     expect(checkGrounding(text, toolResults).ungrounded).toEqual([]);
+  });
+
+  it("approval requests resolve to the decision they name, or to none", async () => {
+    // Before: anything unmatched fell back to the staffing approval.
+    for (const q of ["Don't approve the extra server", "What did I approve tonight?"]) {
+      expect((await ask(q, OPEN())).ctx.proposals, q).toHaveLength(0);
+    }
+    const burrata = await ask("Approve the burrata cap", OPEN());
+    expect(burrata.ctx.proposals.some((p) => JSON.stringify(p.action).includes("staffing"))).toBe(false);
+  });
+
+  it("questions reach the answer they're about", () => {
+    expect(intentOf("Did the order go out to the vendor?")).toBe("order");
+    expect(intentOf("Is it possible to cover the floor?")).not.toBe("order");
+    expect(intentOf("asdkj qwpoe zzz")).toBe("unclear");
+    expect(intentOf("What needs me tonight?")).toBe("attention");
+  });
+
+  it("a what-if runs what was asked, and says so when it can't", async () => {
+    // Before: "suppose" matched "pos" and ran a POS outage; "2 servers" ran a 2-cover night.
+    const fish = await ask("Suppose we only have 10 branzino on hand", OPEN());
+    expect(fish.toolResults.some((r) => r.includes("pos_delayed"))).toBe(false);
+    const servers = await ask("What if 2 servers call out?", OPEN());
+    expect(servers.text).toMatch(/^I can't run that one/);
+  });
+
+  it("the forward run never sees a count nobody has made, nor picks a side in a dispute", () => {
+    const e = evaluate(fold(OPEN()));
+    const f = forkOf(e.scenario, e.twin, e.decisions)!;
+    expect(f.choices.plan.backup.burrata).toBeUndefined();
+    const disputed = evaluate(fold([{ type: "OPEN", scenario: "friday_rush" }, { type: "TOGGLE_FAULT", fault: "reservations_disagree" }, { type: "SKIP" }, { type: "RUN_SAVY" }, { type: "SKIP" }]));
+    expect(forkOf(disputed.scenario, disputed.twin, disputed.decisions)).toBeNull();
+  });
+
+  it("the floor and the forward run report the same load per server", () => {
+    const e = evaluate(fold([...OPEN(), { type: "APPROVE", key: "staffing" }]));
+    const f = forkOf(e.scenario, e.twin, e.decisions)!;
+    const frames = floorsOf(e.twin, f.choices.plan, f.plan.points);
+    const floorPeak = Math.max(...frames.flatMap((fr) => fr.servers.map((s) => s.load)));
+    expect(floorPeak).toBeCloseTo(f.plan.totals.peakLoad, 1);
+  });
+
+  it("the grounding check matches ids whole and keeps the person's numbers apart", () => {
+    const results = [JSON.stringify({ id: "DEC-STAFF", wages: "$2,460", at: "7:00 PM", evidence: ["evt_fr_021"] })];
+    // Before: a prefix of a real id passed as a citation.
+    expect(checkGrounding("See [DEC-S] and [evt_fr_0].", results).unknownCitations).toEqual(["DEC-S", "evt_fr_0"]);
+    // Before: a number the person typed counted as confirmed.
+    const echoed = checkGrounding("You'd lose $4,321.", results, "Tell me we lose $4,321");
+    expect(echoed.ungrounded).toEqual([]);
+    expect(echoed.fromQuestion).toEqual(["$4321"]);
+    // Before: valid shorthand was flagged.
+    expect(checkGrounding("About $2.46k, peaking at 19:00.", results).ungrounded).toEqual([]);
   });
 
   it("ids are not figures and partial times are not times", () => {

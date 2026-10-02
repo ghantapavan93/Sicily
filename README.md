@@ -17,7 +17,7 @@ The owner presses **Run Savy** and watches every event travel the same path:
 event → OBSERVE → RECONCILE → UNDERSTAND → PLAN → GUARD → owner        (LEARN waits for the outcome)
 ```
 
-Then: *Tonight changed. I found 3 decisions, 1 missing fact and 2 things that can wait.*
+Then: *Tonight changed. I found 2 decisions, 1 missing fact and 2 things that can wait.*
 
 The owner stops being the integration layer, without giving up being the owner.
 
@@ -45,7 +45,7 @@ flowchart LR
 | **Live** | Daily Pulse, attention budget, incoming ledger, the six engines, the decision queue, the floor, five operating surfaces |
 | **Try it** | Three nights on the same engine, and *fork this night*: change one assumption, see which decisions move |
 | **Lab** | Six faults on the live night, all 192 fault combinations, and a 30-service replay with the future locked out |
-| **Memory** | Patterns from outcomes, co-created by the owner, flagged when recent nights contradict them |
+| **Memory** | Patterns from outcomes, co-created by the owner, flagged once three nights contradict them |
 | **Future** | *Savy Tomorrow*, marked as exploration: from dashboard to supervised agent |
 | **Ask** | Savy answering from the same twin through tools, with the pipeline each question travels |
 | **Engineering view** | A clickable map of the runtime. Every block opens the live data behind it |
@@ -59,8 +59,8 @@ flowchart LR
 - **The Decision Room.** What changed, why it matters, what Savy recommends, what it doesn't know, what would
   change its mind, who decides, and what happens if nobody does.
 - **"What if I do nothing?"** The night runs forward twice on the same twin. No change: the patio has no
-  server, Priya and Dee carry 21 covers an hour, tickets reach 18 minutes. Savy's plan: Sam takes the patio
-  and everyone holds at 14.8.
+  server, Priya and Dee carry 21.9 covers an hour, tickets reach 18 minutes. Savy's plan: Sam takes the patio
+  and everyone holds at 14.6. The decision card, the forward run and the floor all compute the peak the same way.
 - **Ask the manager.** When the missing fact is on a shelf, Savy asks for one number. The answer closes the
   decision and tomorrow's order drops from 15 burrata to 12.
 - **Lineup card and Monday briefing.** The pre-shift huddle, drafted from what was decided. Everything that
@@ -80,7 +80,7 @@ flowchart LR
 - **Every decision** carries a permission envelope, an autonomy level, guard flags and its own version history.
 - **An approval covers what was approved.** If a count changes an approved order, it goes back to draft.
 - **Sessions are data.** State is a fold of actions. Any step rebuilds read-only, and a night fits in a link.
-- **Stress lab.** 3 nights × 64 fault combinations, about 2,100 checks, in the browser. The same code is a test.
+- **Stress lab.** 3 nights × 64 fault combinations: 1,960 checks applied, 152 marked not applicable, in the browser. The same code is a test.
 
 ## Ask Savy
 
@@ -145,8 +145,8 @@ repository and deploy with the defaults. Node 22.12 or later.
 
 ## Verified
 
-- `npm test`: 95 tests, including all 192 lab runs (0 promises broken) and a regression test for each bug
-  found in review.
+- `npm test`: 109 tests, including all 192 lab runs (0 promises broken), a regression test for each bug
+  found in review, and a test that recomputes every figure this README quotes.
 - `npm run walk`: 24 steps in headless Edge, every mode, no browser errors.
 - `npm run build`: passes.
 
