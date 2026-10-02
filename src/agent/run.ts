@@ -69,6 +69,8 @@ async function* answerByModel(
   let unparseable = 0;
 
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+    // The last round may not call tools, so a run always ends in an answer rather than a half-finished lookup.
+    const lastRound = iteration === MAX_ITERATIONS - 1;
     const stream = client.beta.messages.stream(
       {
         model: SAVY_MODEL,
@@ -76,6 +78,7 @@ async function* answerByModel(
         max_tokens: 4096,
         system: SAVY_SYSTEM,
         tools: MODEL_TOOLS,
+        ...(lastRound ? { tool_choice: { type: "none" as const } } : {}),
         messages,
         output_config: { effort: "low" },
         // A policy decline is re-run on Anthropic's recommended fallback model inside the same call.
@@ -99,8 +102,9 @@ async function* answerByModel(
       message = await stream.finalMessage();
       unparseable = 0;
     } catch (err) {
-      // With eager input streaming a tool input can fail to parse. Only that case is retried.
-      if (err instanceof Anthropic.APIError || signal.aborted || unparseable++ >= MAX_UNPARSEABLE_RETRIES) throw err;
+      // With eager input streaming a tool input can fail to parse. Only that case is retried, and only if
+      // nothing from the round reached the screen; otherwise the retry would show the same words twice.
+      if (err instanceof Anthropic.APIError || signal.aborted || iterationText !== "" || unparseable++ >= MAX_UNPARSEABLE_RETRIES) throw err;
       continue;
     }
 

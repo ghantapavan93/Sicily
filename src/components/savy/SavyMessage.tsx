@@ -250,6 +250,7 @@ export function SavyMessage({ turn }: { turn: SavyTurn }) {
                     <span className="flex items-center gap-1.5 text-verified">
                       <Check aria-hidden className="size-3.5" strokeWidth={2.5} />
                       {g.figures} {g.figures === 1 ? "figure" : "figures"} found in tool results
+                      {g.fromQuestion.length > 0 && <span className="text-ink-lo">· {g.fromQuestion.join(", ")} from your question</span>}
                     </span>
                   )
                 ) : (

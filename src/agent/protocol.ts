@@ -2,7 +2,7 @@ import type { TwinAction } from "@/twin/runtime";
 import type { DecisionKey, ItemId } from "@/twin/types";
 
 // The action log is validated and replayed by the twin runtime; the agent only relies on it.
-export { MAX_ACTIONS, parseActions } from "@/twin/runtime";
+export { lastNight, MAX_ACTIONS, nightTooLong, parseActions, validActions } from "@/twin/runtime";
 
 /**
  * The wire contract between the Ask Savy panel and the agent route.
@@ -27,7 +27,8 @@ export interface AgentRequest {
 
 /** Things Savy may put in front of a person. Savy proposes; only a click on screen executes. */
 export type ProposalAction =
-  | { kind: "approve"; decision: DecisionKey }
+  /** `version` is the decision's version when Savy proposed it, so a button can't approve a recommendation that has since changed. */
+  | { kind: "approve"; decision: DecisionKey; version?: number }
   | { kind: "ask_manager"; item: ItemId; place: "line" | "backup" }
   | { kind: "recheck_pos" }
   | { kind: "submit_po" };
@@ -47,6 +48,8 @@ export interface GroundingReport {
   citations: string[];
   /** Cited ids that no tool returned. */
   unknownCitations: string[];
+  /** Figures backed only by the person's own question: repeated back, not confirmed by any record. */
+  fromQuestion: string[];
 }
 
 export type AgentEvent =

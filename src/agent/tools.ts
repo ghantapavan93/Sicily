@@ -125,6 +125,9 @@ export function proposalEligibility(ctx: AgentContext, action: ProposalAction): 
       if (!APPROVABLE.has(d.status) || !d.recommendation?.approvable) {
         return { ok: false, why: d.status === "approved" || d.status === "rejected" ? "It has already been decided." : "Savy isn't standing behind a recommendation there. The evidence isn't sufficient." };
       }
+      if (action.version !== undefined && action.version !== (ctx.state.versions[action.decision]?.length ?? 0)) {
+        return { ok: false, why: "The recommendation has changed since Savy proposed this. Open the decision to see the current one." };
+      }
       return { ok: true };
     }
     case "ask_manager":
@@ -347,6 +350,8 @@ export const TOOLS: ToolSpec[] = [
       "Run the rest of tonight twice from the current twin: once with no change, once with Savy's plan. Returns covers, sales, wages, labor, peak load, worst ticket time, walk-ins lost and what sells out, for each. Synthetic and deterministic: a way to see a choice's consequence, not a promise of money.",
     input_schema: { type: "object", properties: {}, required: [], additionalProperties: false },
     run: (ctx) => {
+      if (ctx.state.phase === "idle" || ctx.state.phase === "arriving" || ctx.state.phase === "waiting" || ctx.state.phase === "processing")
+        return { available: false, why: "Savy hasn't finished reading tonight, so there is no plan to run forward yet." };
       const fork = forkOf(ctx.ev.scenario, ctx.ev.twin, ctx.ev.decisions);
       if (!fork) return { available: false, why: "The cover count isn't settled, so the night can't be run forward." };
       return { available: true, no_change: night(fork.nothing), savy_plan: night(fork.plan), caveat: "Simulated. Not a forecast of real money." };
@@ -498,7 +503,7 @@ export const TOOLS: ToolSpec[] = [
       let label = PROPOSAL_LABEL[kind];
       if (kind === "approve") {
         const d = decisionArg(ctx, { id: input.decision });
-        action = { kind, decision: d.key };
+        action = { kind, decision: d.key, version: ctx.state.versions[d.key]?.length ?? 0 };
         label = `Approve: ${d.recommendation?.action ?? d.title}`;
       } else if (kind === "ask_manager") {
         const item = enumArg(input, "item", ITEMS);

@@ -55,7 +55,7 @@ describe("tools are read-only projections of the twin", () => {
   it("a what-if runs on a copy: the live night is untouched", () => {
     const ctx = ctxAfter();
     const before = JSON.stringify(ctx.state);
-    const r = runTool(ctx, "what_if", { covers: 144 });
+    const r = runTool(ctx, "what_if", { covers: 136 });
     expect(JSON.stringify(ctx.state)).toBe(before);
     expect(JSON.parse(r.json).changed.map((c: { id: string }) => c.id)).toContain("DEC-STAFF");
   });
@@ -72,8 +72,14 @@ describe("Savy proposes; a person acts", () => {
     expect(proposalEligibility(held, { kind: "recheck_pos" }).ok).toBe(true);
   });
 
+  it("a bare 'approve it' with two decisions open asks which one instead of guessing", async () => {
+    const { ctx, text } = await ask("Go ahead and approve it");
+    expect(ctx.proposals).toHaveLength(0);
+    expect(text).toMatch(/^Which one\?/);
+  });
+
   it("a proposal changes nothing until it becomes an action on screen", async () => {
-    const { ctx, events } = await ask("Go ahead and approve it");
+    const { ctx, events } = await ask("Go ahead and approve the extra server");
     expect(events.some((e) => e.type === "tool.called" && e.name === "propose_action")).toBe(true);
     expect(ctx.proposals).toHaveLength(1);
     expect(ctx.state.human.staffing).toBeUndefined();

@@ -1,5 +1,6 @@
 import type { AgentEvent } from "./protocol";
 import { runTool, type AgentContext } from "./tools";
+import { HOUSE } from "@/domain/venue";
 
 /**
  * The planner used when no model is connected. It is not a language model
@@ -39,7 +40,8 @@ export type Intent =
   | "receipts"
   | "staffing"
   | "help"
-  | "attention";
+  | "attention"
+  | "unclear";
 
 /** Questions that only make sense once Savy has formed tonight's decisions. */
 const WAITS_ON_DECISIONS = new Set<Intent>(["propose", "afford", "do_nothing", "can_wait", "explain", "order", "cash", "confidence", "staffing"]);
@@ -51,29 +53,61 @@ const ITEM_WORDS: [string, string[]][] = [
 ];
 const itemIn = (q: string) => ITEM_WORDS.find(([, words]) => has(q, ...words))?.[0] ?? null;
 
+/** Words that name a kind of decision, matched against the decision ids open tonight. */
+const DECISION_WORDS: [string, string[]][] = [
+  ["DEC-STAFF", ["server", "servers", "staff", "staffing", "shift", "sam", "peak", "on call", "on-call", "early out", "coverage"]],
+  ["DEC-PO", ["order", "po", "purchase order"]],
+  ["DEC-INVOICE", ["invoice", "dispute", "credit"]],
+  ["DEC-CASH", ["cash", "defer", "deferral"]],
+];
+
+/**
+ * The decision an approval request names, or null when it names none or
+ * names one that isn't open tonight. Dishes resolve to the decision about
+ * that dish. A bare "approve it" resolves only when exactly one decision can be approved.
+ */
+export function approvalTarget(q: string, open: { id?: unknown; approvable?: unknown }[]): string | null {
+  const ids = open.map((d) => String(d.id ?? ""));
+  const item = itemIn(q);
+  if (item) return ids.find((id) => id.includes(item.toUpperCase())) ?? null;
+  for (const [prefix, words] of DECISION_WORDS) {
+    if (hasWord(q, ...words)) return ids.find((id) => id === prefix || id.startsWith(`${prefix}-`)) ?? null;
+  }
+  const approvable = open.filter((d) => d.approvable === true);
+  return approvable.length === 1 ? String(approvable[0]!.id) : null;
+}
+
+/** Words almost every real question contains. A message with none of them isn't one Savy can read. */
+const PLAIN_WORDS = ["what", "how", "why", "who", "when", "is", "are", "the", "do", "does", "can", "should", "will", "need", "show", "tell", "tonight", "i", "we", "my", "our", "me", "you"];
+
 /** First match wins, so the order runs from the most specific wording to the least. */
 export function intentOf(question: string): Intent {
   const q = question.toLowerCase();
   if (has(q, "can you send", "can you text", "can you order", "order it yourself", "yourself", "on your own", "automatically", "who approves", "who can approve")) return "boundary";
+  if (has(q, "what did i approve", "what have i approved", "did i approve", "what i approved")) return "receipts";
   if (hasWord(q, "approve", "go ahead", "add the server", "yes, add", "do it", "submit the order", "send the order", "ask the manager", "check the walk-in", "check stock", "re-check", "recheck", "refresh sales")) return "propose";
   if (has(q, "afford")) return "afford";
   if (has(q, "do nothing", "if i don't", "if nothing", "ignore it", "no change", "doing nothing")) return "do_nothing";
-  if (has(q, "what if", "what happens if", "suppose", "drop by", "fall by", "goes down", "says no", "cancelled", "canceled")) return "what_if";
+  if (has(q, "what if", "what happens if", "drop by", "fall by", "goes down", "says no", "cancelled", "canceled") || hasWord(q, "suppose")) return "what_if";
   if (has(q, "hide", "hidden", "filtered", "suppress", "noise")) return "hidden";
   if (has(q, "can wait", "monday", "later", "prioriti", "what's urgent", "what is urgent")) return "can_wait";
   if (has(q, "like i'm on the floor", "for the gm", "gm version", "tell the manager", "engineer", "explain it", "explain this")) return "explain";
   if (has(q, "receipt", "turn out", "how did tonight", "how did it go", "what happened tonight")) return "receipts";
   if (has(q, "changed", "since this morning", "since noon", "timeline", "so far", "what happened")) return "changed";
   if (has(q, "learn", "memory", "remember", "pattern", "dna")) return "memory";
-  if (has(q, "last 30", "history", "shadow", "been right", "track record", "trust")) return "history";
+  if (has(q, "host count", "two counts", "which count", "counts disagree")) return "unknown";
+  if (has(q, "last 30", "history", "shadow", "been right", "track record") || hasWord(q, "trust savy", "trust you")) return "history";
   if (has(q, "how sure", "confident", "confidence", "certain")) return "confidence";
   if (has(q, "don't you know", "do not know", "dont you know", "missing", "unknown", "can't you see")) return "unknown";
   if (itemIn(q) || has(q, "inventory", "run out", "86", "stock")) return "item";
-  if (has(q, "invoice", "price", "produce", "vendor", "supplier")) return "invoice";
-  if (has(q, "order", "purchas", " po", "tomorrow")) return "order";
+  if (hasWord(q, "order", "orders", "po", "purchase order") && !hasWord(q, "invoice", "invoices")) return "order";
+  if (hasWord(q, "invoice", "invoices", "price", "prices", "vendor", "supplier", "produce invoice", "produce bill")) return "invoice";
+  if (has(q, "order", "purchas", "tomorrow") || hasWord(q, "po")) return "order";
   if (has(q, "cash", "money", "spend", "bank")) return "cash";
   if (has(q, "labor", "server", "staff", "coverage", "floor", "urgent")) return "staffing";
   if (/^(hi|hello|hey)\b/.test(q) || has(q, "what can you", "help", "who are you", "what do you do")) return "help";
+  // Nothing recognisable: say so, rather than answer a question nobody asked.
+  if (!hasWord(q, ...PLAIN_WORDS)) return "unclear";
   return "attention";
 }
 
@@ -132,6 +166,9 @@ export async function* answerByRules(
     return decisions(l).some((d) => str(d.id) === id) ? yield* call("get_decision", { id }) : null;
   }
 
+  // A long message usually carries news. Savy only reads tonight's connected systems, and says so up front.
+  if (q.split(/\s+/).length > 30) say("I can only read what tonight's systems report, so I can't take in new facts from a message yet. Here is what they report.");
+
   // While Savy is still reading, there are no decisions to describe or price yet. Say that instead of "+$0".
   const asked = intentOf(question);
   const reading = ctx.state.phase === "arriving" || ctx.state.phase === "processing";
@@ -158,17 +195,18 @@ export async function* answerByRules(
       } else if (has(q, "submit", "send the order")) {
         input = { action: "submit_po", reason: "The owner asked to submit the approved order." };
       } else {
-        const id = hasWord(q, "order", "po", "purchase order")
-          ? "DEC-PO"
-          : hasWord(q, "invoice")
-            ? "DEC-INVOICE"
-            : hasWord(q, "salad", "greens", "credit")
-              ? "DEC-GREENS-SHORT"
-              : hasWord(q, "cash", "defer")
-                ? "DEC-CASH"
-                : "DEC-STAFF";
-        // No guessing: if the decision asked for doesn't exist tonight, say so rather than approve something else.
-        input = { action: "approve", decision: id, reason: "The owner asked to approve it." };
+        if (has(q, "don't approve", "dont approve", "do not approve", "not approve", "shouldn't approve", "won't approve")) {
+          say("Then nothing changes. It stays open until someone decides, and the no-change branch is what the night does.");
+          break;
+        }
+        const target = approvalTarget(q, decisions(l));
+        if (!target) {
+          // No guessing: name what can be approved and let the person pick.
+          const open = decisions(l).filter((d) => d.approvable === true);
+          say(open.length ? `Which one? You can approve ${open.map((d) => `“${str(d.title)}” ${cite(d)}`).join(", or ")}.` : "Nothing is ready to approve right now.");
+          break;
+        }
+        input = { action: "approve", decision: target, reason: "The owner asked to approve it." };
       }
       const p = yield* call("propose_action", input);
       if (str(p.status) === "waiting_for_person") say("I've put it in front of you. Nothing happens until you press it.");
@@ -186,7 +224,7 @@ export async function* answerByRules(
       }
       const d = yield* call("get_decision", { id: str(top.id) });
       const perms = obj(d.permissions);
-      say(`No. On ${str(d.title).toLowerCase()} ${cite(d)} I can: ${strs(perms.can).join(", ").toLowerCase()}.`);
+      say(`No. On “${str(d.title)}” ${cite(d)} I can: ${strs(perms.can).join(", ").toLowerCase()}.`);
       say(`I can't: ${strs(perms.cannot).join(", ").toLowerCase()}. ${str(obj(d.authority).why)}`);
       say("No decision lets me act outside the restaurant: external_action_allowed is false on every one.");
       break;
@@ -200,8 +238,8 @@ export async function* answerByRules(
         const wages = effects.find((e) => str(e.label).startsWith("Wages"));
         const labor = effects.find((e) => str(e.label) === "Labor");
         if (wages && labor) {
-          const under = Number.parseFloat(str(labor.to)) <= 30;
-          say(`${under ? "Yes" : "It's tight"}. Wages go from ${str(wages.from)} to ${str(wages.to)}, and labor from ${str(labor.from)} to ${str(labor.to)} against your 30% goal. ${cite(staff)}`);
+          const under = Number.parseFloat(str(labor.to)) <= HOUSE.laborGoalPct;
+          say(`${under ? "Yes" : "It's tight"}. Wages go from ${str(wages.from)} to ${str(wages.to)}, and labor from ${str(labor.from)} to ${str(labor.to)} against your ${HOUSE.laborGoalPct}% goal. ${cite(staff)}`);
         } else say(`${str(staff.headline)} ${cite(staff)}`);
       }
       say(`All of tonight's proposed decisions change projected weekly cash by ${str(cash.tonights_proposed_decisions_change_cash_by)}, against ${str(cash.weekly_cash_before_tonight)} before tonight and your ${str(cash.owner_floor)} floor.`);
@@ -219,7 +257,7 @@ export async function* answerByRules(
       say(
         `If nothing changes: peak ${str(a.peak_covers_per_server)} covers per server, tickets ${str(a.worst_ticket_minutes)} minutes at worst, ${str(a.walk_ins_lost)} walk-ins lost${strs(a.sold_out).length ? `, ${strs(a.sold_out).join(" and ")}` : ""}. Sales ${str(a.sales)}.`,
       );
-      say(`With my plan (${strs(b.actions).join("; ").toLowerCase()}): peak ${str(b.peak_covers_per_server)}, tickets ${str(b.worst_ticket_minutes)} minutes, sales ${str(b.sales)}, wages ${str(b.wages)}.`);
+      say(`With my plan (${strs(b.actions).join("; ")}): peak ${str(b.peak_covers_per_server)}, tickets ${str(b.worst_ticket_minutes)} minutes, sales ${str(b.sales)}, wages ${str(b.wages)}.`);
       say(str(sim.caveat));
       break;
     }
@@ -229,19 +267,24 @@ export async function* answerByRules(
       const n = /(\d{1,3})/.exec(q);
       if (has(q, "says no", "declines", "can't come", "on-call", "on call")) input.on_call_declines = true;
       else if (has(q, "concert", "event") && has(q, "cancel")) input.event_cancelled = true;
-      else if (has(q, "pos", "sales")) input.fault = "pos_delayed";
-      else if (has(q, "disagree", "host")) input.fault = "reservations_disagree";
-      else if (has(q, "vendor", "times out", "timeout")) input.fault = "vendor_timeout";
-      else if (has(q, "invoice") && has(q, "twice", "duplicate")) input.fault = "invoice_duplicated";
+      else if (hasWord(q, "pos", "sales")) input.fault = "pos_delayed";
+      else if (hasWord(q, "disagree", "host")) input.fault = "reservations_disagree";
+      else if (hasWord(q, "vendor", "times out", "timeout")) input.fault = "vendor_timeout";
+      else if (hasWord(q, "invoice") && hasWord(q, "twice", "duplicate")) input.fault = "invoice_duplicated";
       else if (itemIn(q) && n) {
         input.backup_item = itemIn(q);
         input.backup_units = Number(n[1]);
-      } else if (n) {
+      } else if (n && hasWord(q, "covers", "cover", "guests", "reservations", "booked", "book", "people")) {
         const staffing = yield* call("get_surface", { surface: "staffing" });
         const booked = Number(staffing.booked_covers ?? 0);
         const delta = Number(n[1]);
         input.covers = has(q, "drop", "fall", "lose", "cancel", "fewer", "down") ? booked - delta : has(q, "jump", "more", "add", "up") ? booked + delta : delta;
-      } else input.fault = "pos_delayed";
+      } else {
+        // Not a question the engine can run. Say what it can run instead of running something else.
+        say("I can't run that one. I can run tonight forward with a different cover count, the on-call server saying no, the concert cancelling, a different walk-in count for a dish, or one of the six faults.");
+        say('Try "What if we lose 20 covers?" or "What if we only have 10 branzino?"');
+        break;
+      }
       const w = yield* call("what_if", input);
       if (w.error) {
         say(str(w.error));
@@ -269,8 +312,8 @@ export async function* answerByRules(
       const now = decisions(l).filter((d) => str(d.lane) !== "can wait" && isOpen(d));
       const later = decisions(l).filter((d) => str(d.lane) === "can wait");
       say(later.length ? "These can wait:" : "Nothing open can wait.");
-      for (const d of later) say(`- ${str(d.title)} ${cite(d)}, ${str(d.by).toLowerCase()}.`);
-      if (now.length) say(`These can't: ${now.map((d) => `${str(d.title).toLowerCase()} ${cite(d)} (${str(d.by).toLowerCase()})`).join("; ")}.`);
+      for (const d of later) say(`- ${str(d.title)} ${cite(d)}, ${str(d.by)}.`);
+      if (now.length) say(`These can't: ${now.map((d) => `“${str(d.title)}” ${cite(d)} (${str(d.by)})`).join("; ")}.`);
       break;
     }
 
@@ -335,7 +378,7 @@ export async function* answerByRules(
       const d = yield* call("get_decision", { id: str(top.id) });
       if (intent === "confidence") {
         const c = obj(d.confidence);
-        say(`Confidence on ${str(d.title).toLowerCase()} ${cite(d)} is ${str(c.level)}. ${strs(c.reasons).join(" ")}`);
+        say(`Confidence on “${str(d.title)}” ${cite(d)} is ${str(c.level)}. ${strs(c.reasons).join(" ")}`);
         const mind = strs(d.would_change_my_mind)[0];
         if (mind) say(`What would change my mind: ${mind}`);
         break;
@@ -413,6 +456,11 @@ export async function* answerByRules(
       break;
     }
 
+    case "unclear": {
+      say('I didn\'t follow that. Ask me about tonight, for example "What needs me?", "What if I do nothing?" or "Can I afford another server?"');
+      break;
+    }
+
     case "attention": {
       const p = yield* call("get_pulse");
       say(`${str(p.headline)} ${str(p.detail)}`);
@@ -420,7 +468,7 @@ export async function* answerByRules(
       const top = firstNeeding(l);
       if (top) sayDecision(yield* call("get_decision", { id: str(top.id) }));
       const later = decisions(l).filter((d) => str(d.lane) === "can wait");
-      if (later.length) say(`Can wait: ${later.map((d) => `${str(d.title).toLowerCase()} ${cite(d)}`).join("; ")}.`);
+      if (later.length) say(`Can wait: ${later.map((d) => `“${str(d.title)}” ${cite(d)}`).join("; ")}.`);
       break;
     }
   }

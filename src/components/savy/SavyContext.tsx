@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { actionFor, type AgentEvent, type AgentMode, type ChatTurn, type GroundingReport, type Proposal } from "@/agent/protocol";
+import { actionFor, MAX_TURNS, type AgentEvent, type AgentMode, type ChatTurn, type GroundingReport, type Proposal } from "@/agent/protocol";
 import type { OrbState } from "../ui/morph-orb";
 import { useTwin } from "../experience/TwinContext";
 
@@ -155,12 +155,14 @@ export function SavyProvider({ children }: { children: ReactNode }) {
       if (!question || busy) return;
 
       const id = `turn_${++seq.current}`;
+      // Only what the server will read: the latest turns, so a long conversation never grows into a refused request.
       const history: ChatTurn[] = turns
         .filter((t) => t.status === "done" && t.text)
         .flatMap((t) => [
           { role: "user" as const, content: t.question },
           { role: "assistant" as const, content: t.text },
-        ]);
+        ])
+        .slice(-(MAX_TURNS - 1));
 
       setTurns((all) => [
         ...all,
@@ -236,7 +238,8 @@ export function SavyProvider({ children }: { children: ReactNode }) {
       const proposal = turns.find((t) => t.id === turnId)?.proposals.find((p) => p.id === proposalId);
       if (!proposal || proposal.confirmed) return;
       // The one place a proposal becomes an action, and only because a person pressed the button.
-      dispatch(actionFor(proposal.action));
+      // If the reducer refuses it, the proposal stays unconfirmed and its button explains why.
+      if (!dispatch(actionFor(proposal.action))) return;
       setTurns((all) =>
         all.map((t) =>
           t.id === turnId

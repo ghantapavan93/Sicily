@@ -1,5 +1,5 @@
 import { clientKey, MAX_BODY_BYTES, rateLimit } from "@/agent/limits";
-import { parseActions, parseTurns, type AgentEvent } from "@/agent/protocol";
+import { lastNight, nightTooLong, parseTurns, validActions, type AgentEvent } from "@/agent/protocol";
 import { describeMode, runSavy } from "@/agent/run";
 import { contextFor } from "@/agent/tools";
 import { formatClock } from "@/domain/clock";
@@ -29,6 +29,10 @@ export async function POST(request: Request) {
     );
   }
 
+  // Refuse an oversized body from its declared length before reading any of it. The read is checked again below,
+  // since the header can be missing or wrong.
+  if (Number(request.headers.get("content-length") ?? 0) > MAX_BODY_BYTES) return Response.json({ error: "The request is too large." }, { status: 413 });
+
   let body: unknown;
   try {
     const raw = await request.text();
@@ -44,7 +48,10 @@ export async function POST(request: Request) {
     return Response.json({ error: "The last message must be a question from the user." }, { status: 400 });
   }
 
-  const actions = parseActions(record.actions);
+  const valid = validActions(record.actions);
+  // A night longer than a replay keeps would be answered from a different night. Say so instead.
+  if (nightTooLong(valid)) return Response.json({ error: "This night has too many steps to replay. Start a new night to keep asking." }, { status: 413 });
+  const actions = lastNight(valid);
   const state = fold(actions);
   const ctx = contextFor(state);
   const encoder = new TextEncoder();
