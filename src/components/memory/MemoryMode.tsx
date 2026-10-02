@@ -66,7 +66,7 @@ function MemoryCard({ m, light, delay }: { m: Memory; light: string | null; dela
       {m.status === "needs_revalidation" && (
         <p className="mt-4 flex gap-2 rounded-xl border border-conflict/40 bg-conflict/[0.06] px-3 py-2.5 text-sm text-ink-hi">
           <AlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0 text-conflict" />
-          This pattern may no longer hold. {m.counter.length} recent nights contradict it, so Savy has stopped leaning on it until it is revalidated.
+          This pattern may no longer hold. {m.counter.length} nights contradict it, so Savy has stopped leaning on it until it is revalidated.
         </p>
       )}
       {m.status === "candidate" && (
@@ -100,7 +100,7 @@ function MemoryCard({ m, light, delay }: { m: Memory; light: string | null; dela
 /**
  * MEMORY. Not personalisation: outcomes. Every memory is computed from
  * nights and what happened on them, can be co-created by the owner, decays
- * when recent nights contradict it, and links to every night it stands on.
+ * when enough nights contradict it, and links to every night it stands on.
  */
 export function MemoryMode() {
   const { state, view } = useTwin();

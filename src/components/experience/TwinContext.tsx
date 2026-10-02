@@ -42,7 +42,8 @@ interface TwinContextValue {
   ev: Evaluation;
   pulse: Pulse;
   attention: Attention;
-  dispatch: (action: TwinAction) => void;
+  /** True when the reducer applied the action; false when it refused it or the screen shows the past. */
+  dispatch: (action: TwinAction) => boolean;
   actionLog: () => TwinAction[];
   session: Session;
   mode: Mode;
@@ -114,16 +115,17 @@ export function TwinProvider({ children }: { children: ReactNode }) {
 
   // The past is read-only: while an earlier point is on screen, nothing can be dispatched into it.
   // The reducer runs here, synchronously, so an action it refuses never reaches the log or a link.
-  const dispatch = useCallback((action: TwinAction) => {
-    if (!liveRef.current && action.type !== "RESET") return;
+  const dispatch = useCallback((action: TwinAction): boolean => {
+    if (!liveRef.current && action.type !== "RESET") return false;
     const before = liveStateRef.current;
     const next = twinReducer(before, action);
-    if (next === before && action.type !== "RESET") return;
+    if (next === before && action.type !== "RESET") return false;
     liveStateRef.current = next;
     // A new night starts from nothing, so its log does too: links and Savy's replay carry only this night.
     setLog((current) => (action.type === "RESET" ? [] : action.type === "OPEN" ? [action] : [...current, action]));
     if (action.type === "RESET") setCursor(null);
     setLiveState(next);
+    return true;
   }, []);
 
   const viewed = useMemo(() => (cursor === null ? log : log.slice(0, cursor)), [log, cursor]);
@@ -272,6 +274,21 @@ export function TwinProvider({ children }: { children: ReactNode }) {
     },
     [dispatch],
   );
+
+  // The address bar always holds the live night, so a refresh or a copied URL comes back to the same place.
+  // replaceState writes it without adding history entries and without firing hashchange.
+  useEffect(() => {
+    if (!restored.current) return;
+    const id = window.setTimeout(() => {
+      const params: string[] = [];
+      if (log.length > 0) params.push(`s=${encodeSession(log)}`);
+      if (log.length > 0 && mode !== "live") params.push(`m=${mode}`);
+      if (log.length > 0 && view !== "operator") params.push(`v=${view}`);
+      const next = params.length ? `#${params.join("&")}` : "";
+      if (next !== window.location.hash) window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}${next}`);
+    }, 250);
+    return () => window.clearTimeout(id);
+  }, [log, mode, view]);
 
   const session = useMemo<Session>(
     () => ({

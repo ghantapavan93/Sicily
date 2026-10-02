@@ -4,7 +4,7 @@ import clsx from "clsx";
 import { AnimatePresence, motion } from "framer-motion";
 import { Fragment, useState, type ReactNode } from "react";
 import { formatAge, formatClock } from "@/domain/clock";
-import { usd } from "@/twin/format";
+import { plural, usd } from "@/twin/format";
 import { ENGINES } from "@/twin/pulse";
 import { memoriesFor } from "@/twin/recall";
 import { SOURCE_ORDER, SOURCES } from "@/twin/sources";
@@ -22,7 +22,7 @@ const NODES: { id: NodeId; label: string; what: string }[] = [
   { id: "ledger", label: "Event ledger", what: "Every event, in arrival order, with availableAt and a dedupe key" },
   { id: "normalize", label: "Normalize + dedupe", what: "Duplicates set aside, staleness marked, disagreements surfaced" },
   { id: "state", label: "Restaurant state", what: "The twin: demand, floor, stock, orders, invoices, cash" },
-  { id: "savy", label: "Savy", what: "Six engines, five specialists, one decision model" },
+  { id: "savy", label: "Savy", what: "Six engines, six specialists, one decision model" },
   { id: "decisions", label: "Decision ledger", what: "Each decision versioned v1 → vN, with the event that moved it" },
   { id: "approval", label: "Human approval", what: "The guard: authority, evidence, external_action_allowed = false" },
   { id: "action", label: "Action", what: "What people did, and what vendors answered" },
@@ -261,13 +261,13 @@ export function EngineeringRoom() {
   const live = state.phase === "processing" || state.phase === "arriving";
   const stat: Record<NodeId, string> = {
     sources: `${SOURCE_ORDER.length} systems · ${ev.twin.health.filter((h) => h.freshness === "stale").length} stale`,
-    ledger: `${ev.arrived.length} events`,
-    normalize: `${ev.twin.ledger.duplicates.length} duplicates · ${ev.twin.ledger.conflicts.length} conflicts`,
+    ledger: plural(ev.arrived.length, "event"),
+    normalize: `${plural(ev.twin.ledger.duplicates.length, "duplicate")} · ${plural(ev.twin.ledger.conflicts.length, "conflict")}`,
     state: `as of ${formatClock(ev.twin.clock)}`,
-    savy: `${ev.observations.length} observations`,
-    decisions: `${ev.decisions.length} decisions · ${Object.values(state.versions).reduce((n, v) => n + v.length, 0)} versions`,
+    savy: plural(ev.observations.length, "observation"),
+    decisions: `${plural(ev.decisions.length, "decision")} · ${plural(Object.values(state.versions).reduce((n, v) => n + v.length, 0), "version")}`,
     approval: `${ev.decisions.filter((d) => d.guard.requiresApproval).length} gated · 0 external`,
-    action: `${state.audit.filter((a) => a.actor === "owner" || a.actor === "manager" || a.actor === "vendor").length} actions`,
+    action: plural(state.audit.filter((a) => a.actor === "owner" || a.actor === "manager" || a.actor === "vendor").length, "action"),
     outcome: state.outcome ? "recorded" : "pending",
     memory: state.phase === "remembered" ? "updated tonight" : "waiting",
   };
@@ -328,6 +328,8 @@ export function EngineeringRoom() {
         </ol>
 
         <div className="space-y-6">
+          {/* Above the inspector: the inspector sticks while scrolling, and anything below it would slide underneath. */}
+          <SessionPanel />
           <Panel className="p-5 xl:sticky xl:top-20">
             <div className="flex items-baseline justify-between gap-3 border-b border-line-soft pb-3">
               <p className="font-mono text-sm font-semibold uppercase tracking-[0.12em] text-ink-hi">{NODES.find((n) => n.id === node)!.label}</p>
@@ -339,7 +341,6 @@ export function EngineeringRoom() {
               </motion.div>
             </AnimatePresence>
           </Panel>
-          <SessionPanel />
         </div>
       </div>
     </div>

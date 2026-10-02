@@ -9,7 +9,7 @@ import { Chip, Eyebrow, Panel } from "../ui/primitives";
 const STAGES: { title: string; says: string; unlocks: string; here: "shown" | "partly" | "exploration" }[] = [
   { title: "Dashboard", says: "Tell me what happened.", unlocks: "Numbers after the fact, one system at a time.", here: "shown" },
   { title: "Connected operating picture", says: "Show me tonight in one place.", unlocks: "One twin across POS, time and payroll, supplier email, inventory and the bank.", here: "shown" },
-  { title: "Decision intelligence", says: "Tell me what needs my attention.", unlocks: "Three decisions instead of six dashboards, each with evidence, unknowns and a do-nothing branch.", here: "shown" },
+  { title: "Decision intelligence", says: "Tell me what needs my attention.", unlocks: "A few decisions instead of six dashboards, each with evidence, unknowns and a do-nothing branch.", here: "shown" },
   { title: "Supervised agent", says: "Prepare the action and wait for me.", unlocks: "Drafted shifts, orders and credit requests behind a permission envelope. A person sends.", here: "shown" },
   { title: "Restaurant memory", says: "Tell me what this restaurant has learned after 400 Friday nights.", unlocks: "Patterns from outcomes, co-created with the owner, that decay when the restaurant changes.", here: "partly" },
   { title: "Multi-location intelligence", says: "What's working at one location that another should try?", unlocks: "Practices that travel between locations, with each location's context kept separate.", here: "exploration" },
@@ -117,7 +117,13 @@ every_execution:
       </section>
 
       <section aria-label="Many locations">
-        <Eyebrow>Institutional intelligence</Eyebrow>
+        <div className="flex flex-wrap items-center gap-2">
+          <Eyebrow>Institutional intelligence</Eyebrow>
+          {/* These figures are typed for the illustration. The engine computes none of them. */}
+          <Chip tone="neutral" dashed>
+            Illustrative figures · not computed
+          </Chip>
+        </div>
         <h2 className="mt-2 max-w-3xl font-display text-3xl font-light text-ink-hi">One restaurant teaches the others, without becoming the others.</h2>
         <div className="mt-6 grid gap-4 md:grid-cols-3">
           {LOCATIONS.map((l) => (

@@ -1,6 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion, MotionConfig } from "framer-motion";
+import { useEffect, useRef } from "react";
 import { DUR, EASE } from "@/lib/motion";
 import { EngineeringRoom } from "../engineering/EngineeringRoom";
 import { TimeTravelBanner } from "../engineering/SessionPanel";
@@ -26,6 +27,13 @@ import { TwinProvider, useTwin } from "./TwinContext";
 function Stage() {
   const { state, mode, view } = useTwin();
   const screen = view === "engineering" ? "engineering" : mode;
+  const mainRef = useRef<HTMLElement>(null);
+
+  // A pressed button often disappears with what it did (Open tonight, Run Savy, Approve). When that drops
+  // keyboard focus to the page itself, it lands on the content instead of starting over at the top.
+  useEffect(() => {
+    if (document.activeElement === document.body) mainRef.current?.focus({ preventScroll: true });
+  }, [state, screen]);
 
   return (
     <AnimatePresence mode="wait" initial={false}>
@@ -40,9 +48,12 @@ function Stage() {
           transition={{ duration: DUR.slow, ease: EASE.inOut }}
           className="flex min-h-dvh flex-col"
         >
+          <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-3 focus:z-[90] focus:rounded-full focus:bg-brass focus:px-4 focus:py-2 focus:text-xs focus:font-semibold focus:text-ground-0">
+            Skip to content
+          </a>
           <TopBar />
           <TimeTravelBanner />
-          <main className="flex-1">
+          <main id="main" ref={mainRef} tabIndex={-1} className="flex-1 outline-none">
             <AnimatePresence mode="wait" initial={false}>
               <motion.div
                 key={screen}

@@ -53,7 +53,7 @@ export function EngineGraph() {
   const summary: Record<EngineId, string> = {
     observe: `${ev.processed.length} signals read`,
     reconcile: `${ledger.verified.length} verified · ${ledger.duplicates.length} duplicate${ledger.duplicates.length === 1 ? "" : "s"} · ${ledger.stale.length} stale`,
-    understand: ev.twin.demand.peakCovers !== null ? `${ev.twin.demand.peakCovers} covers at the 7 PM peak` : "Cover count unsettled",
+    understand: ev.twin.demand.peakCovers !== null ? `${Math.round(ev.twin.demand.peakCovers)} covers an hour at the 7 PM peak` : "Cover count unsettled",
     plan: `${ev.decisions.length} decisions`,
     guard: `${ev.decisions.filter((d) => d.guard.requiresApproval).length} need a person · 0 external actions allowed`,
     learn: phase === "remembered" ? "Tonight written to memory" : phase === "closed" ? "Writing tonight to memory" : "Waits for the outcome",
@@ -158,12 +158,12 @@ export function EngineGraph() {
           </div>
         ) : (
           <div className="mt-5 flex flex-wrap gap-x-6 gap-y-2 border-t border-line-soft pt-4">
-            <Counter value={ledger.verified.length} label="facts verified" tone="verified" />
-            <Counter value={ledger.stale.length} label="sources stale" tone={ledger.stale.length ? "brass" : undefined} />
-            <Counter value={ledger.duplicates.length} label="duplicates ignored" />
-            <Counter value={ledger.conflicts.filter((c) => !c.resolvedBy).length} label="conflicts open" tone={ledger.conflicts.some((c) => !c.resolvedBy) ? "brass" : undefined} />
-            <Counter value={ledger.missing.length} label="facts missing" tone={ledger.missing.length ? "unknown" : undefined} />
-            <Counter value={ev.decisions.length} label="decisions created" tone="brass" />
+            <Counter value={ledger.verified.length} label={ledger.verified.length === 1 ? "fact verified" : "facts verified"} tone="verified" />
+            <Counter value={ledger.stale.length} label={ledger.stale.length === 1 ? "source stale" : "sources stale"} tone={ledger.stale.length ? "brass" : undefined} />
+            <Counter value={ledger.duplicates.length} label={ledger.duplicates.length === 1 ? "duplicate ignored" : "duplicates ignored"} />
+            <Counter value={ledger.conflicts.filter((c) => !c.resolvedBy).length} label={ledger.conflicts.filter((c) => !c.resolvedBy).length === 1 ? "conflict open" : "conflicts open"} tone={ledger.conflicts.some((c) => !c.resolvedBy) ? "brass" : undefined} />
+            <Counter value={ledger.missing.length} label={ledger.missing.length === 1 ? "fact missing" : "facts missing"} tone={ledger.missing.length ? "unknown" : undefined} />
+            <Counter value={ev.decisions.length} label={ev.decisions.length === 1 ? "decision created" : "decisions created"} tone="brass" />
             {reading && (
               <button type="button" onClick={() => dispatch({ type: "SKIP" })} className="ml-auto text-xs font-semibold uppercase tracking-[0.1em] text-ink-lo hover:text-ink-hi">
                 Skip to the plan

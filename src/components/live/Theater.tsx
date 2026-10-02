@@ -175,7 +175,7 @@ export function Theater() {
               <div>
                 <Eyebrow>Decision simulator · synthetic</Eyebrow>
                 <h2 className="mt-2 font-display text-[clamp(2rem,4vw,3.25rem)] font-light leading-tight text-ink-hi">
-                  {stage === "nothing" ? "This is the branch where nothing changed." : "Same night. Two decisions."}
+                  {stage === "nothing" ? "This is the branch where nothing changed." : "Same night. Two branches."}
                 </h2>
                 <p className="mt-2 max-w-2xl text-ink-mid">
                   Run forward from {formatClock(ev.twin.clock)}{" "}on tonight&apos;s twin. Simulated from sample history: it shows consequence, not money you will make.
