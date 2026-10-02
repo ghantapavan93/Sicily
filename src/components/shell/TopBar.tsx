@@ -66,9 +66,9 @@ export function TopBar() {
 
         <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
           {!present.active && (
-            <Button variant="ghost" size="sm" aria-label="Present" onClick={present.start} title="Play the three-minute story through the real product">
+            <Button variant="ghost" size="sm" aria-label="Present" onClick={present.start} title="Play the two-minute story through the real product">
               <Clapperboard aria-hidden className="size-3.5" />
-              <span className="hidden lg:inline">Present</span>
+              <span className="hidden sm:inline">Present</span>
             </Button>
           )}
           {mode !== "ask" && (

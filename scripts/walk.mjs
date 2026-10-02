@@ -70,9 +70,9 @@ await step("Run Savy: events travel through the engines one at a time", async ()
   await shot("03-savy-reading.png");
 });
 
-await step("tonight changed: three decisions, one missing fact, two that can wait", async () => {
+await step("tonight changed: two decisions, one missing fact, two that can wait", async () => {
   await see("Tonight changed.", { exact: true });
-  await see("I found 3 decisions, 1 missing fact and 2 things that can wait.", { exact: false });
+  await see("I found 2 decisions, 1 missing fact and 2 things that can wait.", { exact: false });
   await page.locator('[data-savy-moment="synthesis"]').first().waitFor({ state: "attached", timeout: 8000 });
   await page.waitForTimeout(1600);
   await shot("04-tonight-changed.png");
@@ -285,7 +285,7 @@ await step("present mode drives the real product, with captions", async () => {
   const p = await context.newPage();
   p.on("pageerror", (e) => problems.push(`present: ${e.message}`));
   await p.goto(BASE);
-  await p.getByRole("button", { name: "Watch the three-minute story" }).click();
+  await p.getByRole("button", { name: "Watch the two-minute story" }).click();
   const caption = p.getByRole("status", { name: "Present mode" });
   await caption.getByText("Friday, 5:12 PM.").waitFor({ timeout: 8000 });
   await caption.getByText("Run Savy.").waitFor({ timeout: 20000 });

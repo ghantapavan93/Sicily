@@ -70,7 +70,7 @@ export function EntryScene() {
             <ArrowRight aria-hidden className="size-4" />
           </Button>
           <Button variant="secondary" size="lg" onClick={present.start}>
-            Watch the three-minute story
+            Watch the two-minute story
           </Button>
           <span className="flex flex-wrap items-center gap-2 text-sm text-ink-lo">
             or another night:
