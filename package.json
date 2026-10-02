@@ -1,0 +1,40 @@
+{
+  "name": "savy-live-ops",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Savy Live Ops — an independent product exploration for OPSAVOR. Synthetic data only.",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "walk": "node scripts/walk.mjs",
+    "check": "tsc --noEmit && vitest run && next build"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
+    "clsx": "^2.1.1",
+    "framer-motion": "^12.42.2",
+    "lucide-react": "^1.27.0",
+    "next": "16.3.8",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "tailwind-merge": "^3.7.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "^22.10.5",
+    "@types/react": "^19.0.7",
+    "@types/react-dom": "^19.0.3",
+    "playwright-core": "^1.63.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.7.3",
+    "vite": "8.3.2",
+    "vitest": "5.0.3"
+  }
+}
